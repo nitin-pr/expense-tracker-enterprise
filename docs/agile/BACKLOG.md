@@ -272,8 +272,8 @@ Everything in the system depends on this epic (LLD §11: no module is upstream o
 | Priority | Story count | Points | Stories |
 |---|---|---|---|
 | **Must** (MVP) | 21 | 84 | US-001,002,003,005,007,010,011,013,014,015,016,017,018,020,021,023,024,025,026,027,031 |
-| **Should** (V1.1) | 9 | 27 | US-004,008,012,019,022,030,032,033,034 |
-| **Could** (V1.1 / later) | 7 | 20 | US-006,009,028,029,035,036,037 |
+| **Should** (V1.1) | 10 | 30 | US-004,008,012,019,022,030,032,033,034,035 |
+| **Could** (V1.1 / later) | 6 | 17 | US-006,009,028,029,036,037 |
 | **Total** | 37 | 131 | |
 
 See [SPRINT_PLAN.md](./SPRINT_PLAN.md) for how this backlog is sequenced into sprints.
