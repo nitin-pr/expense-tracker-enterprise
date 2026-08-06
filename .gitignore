@@ -20,6 +20,7 @@ staticfiles/
 .env
 .env.*
 firebase-service-account*.json
+!.env.example
 
 # Editors / OS
 .vscode/
