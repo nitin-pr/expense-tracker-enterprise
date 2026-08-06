@@ -5,13 +5,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN groupadd --system app && useradd --system --gid app app
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
-RUN groupadd --system app && useradd --system --gid app app \
-    && chown -R app:app /app
+COPY --chown=app:app . .
 
 USER app
 
