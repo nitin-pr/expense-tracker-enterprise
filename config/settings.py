@@ -43,7 +43,8 @@ INSTALLED_APPS = [
 ]
 
 REST_FRAMEWORK = {
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',   
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema', 
+    'EXCEPTION_HANDLER': 'common.exceptions.handler.app_exception_handler', 
 }
 
 SPECTACULAR_SETTINGS = {
