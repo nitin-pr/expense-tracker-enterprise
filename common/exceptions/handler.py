@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 def app_exception_handler(exc, context):
     """Custom exception handler for DRF that handles AppException and its subclasses."""
     if isinstance(exc, AppException):
-        logger.error("%s: %s", exc.code, exc.message, extra={"details": exc.details})
+        level = logging.WARNING if exc.http_status < 500 else logging.ERROR
+        logger.log(level, "%s: %s", exc.code, exc.message, extra={"details": exc.details})
         return Response(
             {"code": exc.code, "message": exc.message, "details": exc.details},
             status=exc.http_status,
