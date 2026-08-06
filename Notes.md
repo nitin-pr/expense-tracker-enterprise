@@ -297,6 +297,190 @@ gh issue view 1 --repo nitin-pr/expense-tracker-enterprise --json state,title,cl
 
 ---
 
-## Day 2 — _(next session)_
+## Day 2 — 2026-08-06 — Addressing US-001 review feedback + Sprint 1: US-002 Common Package
 
-_To be filled in._
+**Goal for the day:** respond to real Copilot code-review feedback on yesterday's merged PR, then implement and merge US-002 (`common/` package: exceptions, permissions, repositories, services, validators) — including two more rounds of review feedback along the way.
+
+### 1. Resuming a session
+
+```bash
+git status && git branch --show-current
+source venv/Scripts/activate
+pip list
+```
+- New terminal session = venv is **not** auto-activated; re-activating and re-checking `pip list` each session start is worth doing before touching anything, so a stale/global environment can't silently sneak in.
+- Confirmed clean working tree, on `master`, and the exact same package set as yesterday (Django 5.2.17, DRF, drf-spectacular, firebase-admin, gunicorn) — no drift.
+
+### 2. Addressing Copilot's review of PR #38 (already merged)
+
+Copilot's automated review, run after yesterday's merge, flagged three real issues in the already-merged US-001 code:
+1. `SECRET_KEY`/`DEBUG` hardcoded in `settings.py` — a real risk (leaks the Django secret key if the repo is ever public; risks running with `DEBUG=True` in production).
+2. `drf-spectacular` registered in `INSTALLED_APPS`/`REST_FRAMEWORK` but no actual routes exposed to view the generated schema — dead configuration.
+3. `Dockerfile` ran the app as `root` — standard hardening miss.
+
+**Key lesson for this whole section:** since PR #38 had already merged, these fixes went on a **new** branch (`fix/...` prefix, not `feature/...`), not a reopened old one. Convention adopted: `feature/` for new work, `fix/` for bugs/hardening on already-shipped work.
+
+```bash
+git checkout master
+git pull
+git checkout -b fix/us-001-address-review-feedback
+```
+
+**Fix 1 — secrets via environment variables:**
+
+```bash
+pip install python-decouple
+pip freeze > requirements.txt
+```
+- `python-decouple` lets `settings.py` read config from environment variables / a local `.env` file instead of hardcoding them.
+
+Created `.env` (real values, **never committed**) and `.env.example` (template, **committed**, no real secrets) — but hit a `.gitignore` trap: the existing `.env.*` glob pattern would *also* match and silently exclude `.env.example`. Fixed by adding a negation line right after it:
+```
+.env
+.env.*
+!.env.example
+```
+- `!` in a `.gitignore` line means "un-ignore this, even though a broader pattern above would otherwise match it."
+
+`settings.py` changes:
+```python
+from decouple import config
+SECRET_KEY = config('SECRET_KEY')
+DEBUG = config('DEBUG', default=False, cast=bool)
+```
+- `SECRET_KEY` has **no default** — missing `.env` → Django crashes loudly on startup instead of silently using an insecure fallback.
+- `DEBUG` defaults to **`False`** (secure by default) — `.env` explicitly opts into `True` locally; if the env var is ever missing (e.g. a misconfigured deploy), it fails safe.
+
+**Mistake made:** `python manage.py check` initially failed with `decouple.UndefinedValueError: SECRET_KEY not found`. Diagnosed with:
+```bash
+ls -la | grep env
+```
+— which revealed `.env.example` existed but the real `.env` file had never actually been created (only the template was). Fixed with a **heredoc**:
+```bash
+cat > .env << 'EOF'
+SECRET_KEY=django-insecure-6v2fdr&t*zf6(m*vol+z6poee4@tvxyynrc&vkosb^zy7dnw0c
+DEBUG=True
+EOF
+```
+- `cat > file << 'EOF' ... EOF` writes everything between the two `EOF` markers straight into `file` — a clean way to create a short file from the terminal. The quotes around `'EOF'` stop the shell from trying to interpret `&`/`(`/`)` in the secret key as shell syntax.
+
+**Fix 2 — expose drf-spectacular routes**, in `config/urls.py`:
+```python
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+]
+```
+- `/api/schema/` = raw OpenAPI schema; `/api/docs/` = interactive Swagger UI; `/api/redoc/` = read-only ReDoc reference view. Verified by hitting `/api/docs/` directly (hitting bare `/` still 404s — expected, no route was ever mapped there).
+
+**Fix 3 — Dockerfile non-root user:**
+```dockerfile
+RUN groupadd --system app && useradd --system --gid app app \
+    && chown -R app:app /app
+USER app
+```
+- `--system` = a service account, not a real login user (system UID/GID range).
+- `chown -R app:app /app` — everything was copied in as `root` during build, so ownership has to be transferred before `app` can use it.
+- `USER app` — every instruction *after* this line runs as `app`, not `root`.
+
+**False alarm caught and cleared:** the Dockerfile briefly appeared in VS Code as `DockerFile` (capital F) instead of `Dockerfile`. Verified with `ls -la Dockerfile* [Dd]ocker*` and `git status` — turned out to be the *same* file matched twice by overlapping glob patterns, not a real duplicate. Worth having checked anyway: a real case mismatch works fine on Windows (case-insensitive filesystem) but silently breaks on Linux CI/deploy targets (case-sensitive).
+
+Committed only the fix-related files — deliberately left `common/repositories/`/`common/services/` (leftover untracked folders from starting US-002 early) out of this commit, since they belong to a different story:
+```bash
+git add .gitignore Dockerfile config/settings.py config/urls.py requirements.txt .env.example
+git commit -m "Address Copilot review feedback on US-001" -m "..."
+git push -u origin fix/us-001-address-review-feedback
+gh pr create --base master --head fix/us-001-address-review-feedback --title "..." --body "... Refs #1 ..."
+```
+- `Refs #1` instead of `Closes #1` — issue #1 was already closed by PR #38; this is a follow-up, not the original work.
+
+**Second review round — on this new PR, before it merged.** Two real findings:
+1. **`DEBUG = config('DEBUG', default=True, cast=bool)`** — a genuine regression: `default=True` is the *opposite* of the secure-by-default design just described above. Fixed to `default=False`.
+2. **Dockerfile `chown -R` timing** — the original fix created the user *after* `COPY . .`, then ran a separate recursive `chown -R` over the whole copied tree. Wasteful (full extra pass over every file) and cache-unfriendly (invalidates on every code change). Fixed by creating the user *before* any `COPY`, and using `COPY --chown=app:app . .` to set ownership *during* the copy instead of as a separate step:
+```dockerfile
+RUN groupadd --system app && useradd --system --gid app app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY --chown=app:app . .
+USER app
+```
+
+A third point from that same review round (give `SECRET_KEY` a dev-only fallback so a fresh clone doesn't need `.env` set up first) was a genuine **judgment call**, not a bug — decided to keep it strict (no fallback), since `.env.example` already documents what's needed and "fail loudly when misconfigured" was a deliberate choice worth keeping even where the friction it prevents doesn't fully apply yet (solo project).
+
+Fixup committed and pushed to the *same* branch (pre-merge review comments → same branch; post-merge findings → new branch, per the distinction learned above):
+```bash
+git add Dockerfile config/settings.py
+git commit -m "Address second round of Copilot feedback" -m "..."
+git push
+gh pr merge --squash --delete-branch
+```
+- Confirmed `common/repositories/`/`common/services/` (untracked) survived every branch switch throughout this whole detour — git never touches untracked files on checkout unless they'd conflict with something being checked out.
+
+### 3. US-002: Common Package
+
+```bash
+git checkout -b feature/us-002-common-package
+```
+
+Built five pieces of `common/`, each as a small package (`base.py`/specific files + `__init__.py` re-exporting the public names):
+
+**`common/exceptions/`** — one base `AppException` (carries `code`, `http_status`, `message`, optional `details` dict) plus five subclasses (`ValidationError` 400, `AuthenticationError` 401, `PermissionDenied` 403, `NotFoundError` 404, `DatabaseError` 500), and a DRF `EXCEPTION_HANDLER` (`app_exception_handler`) that: (1) turns any `AppException` into a consistent `{code, message, details}` JSON response at its own status code, (2) delegates anything else to DRF's own default handler, (3) falls back to a generic logged 500 for truly unexpected exceptions. Wired into `settings.py` via `REST_FRAMEWORK['EXCEPTION_HANDLER']` (a dotted string path, resolved lazily by DRF at request time).
+
+**`common/permissions/`** — `IsOwner(BasePermission)`, checking `obj.user_id == request.user.id`. Deliberately no defensive `getattr` fallback — if it's ever applied to a model without `user_id`, we want a loud `AttributeError`, not a silently-wrong permission denial.
+
+**`common/repositories/` + `common/services/`** — `BaseRepository(Generic[T])` with real default CRUD methods (`get_by_id`, `list`, `create`, `update`, `delete`) working generically off a `model: Type[T]` class attribute set by each concrete subclass; `BaseService.__init__(self, repository)` takes its repository via constructor injection. **Design note worth remembering:** the LLD showed `BaseRepository` as an `ABC` with `...` method bodies — that notation meant "elided for brevity" in a design doc, not "literally abstract." Making it a real `ABC` would force every concrete repository to reimplement basic CRUD, defeating the point.
+
+**`common/validators/`** — `validate_positive_amount`, `validate_not_future_date`, `validate_file_size_and_type`, each raising **our own** `common.exceptions.ValidationError` specifically — not Django's or DRF's near-identically-named classes — so every error in the system flows through the same handler and comes out the same shape.
+
+**14 unit tests** across `tests/common/` (exceptions: 3, permissions: 2, validators: 9), using `SimpleNamespace` to build lightweight stand-in objects (a request with a `.user.id`, a file with `.content_type`/`.size`) instead of needing real Django models — useful specifically because these pieces only touch a couple of attributes each.
+
+```bash
+python manage.py test tests.common
+# Ran 14 tests ... OK
+```
+
+### 4. Debugging moments during the build
+
+- **`print()` not showing up in a passing test.** First hypothesis (wrong, corrected once the actual code was shown): "an exception stopped execution before the print ran." Actually the prints were *before* the failing call. Real cause turned out to be simpler — the terminal output being compared was from a run *before* the print statements were even added to the file. Once re-run with them in place and the underlying bug fixed, they still didn't show on a **passing** test specifically — consistent with `unittest`/Django test-runner output buffering (captured output is discarded for passing tests, shown for failing ones), though this wasn't fully pinned down with certainty. Practical takeaway: use `logging` instead of `print()` for anything you need visible in test output regardless of pass/fail.
+- **`IsOwner` typo:** `return obj.user_id == request.user_id` instead of `request.user.id` — missing the `.user` in the middle. Caught by the test's `AttributeError` traceback, not by reading the code first.
+- **`common/services/base.py` self-import bug** (caught by Copilot on the US-002 PR): the file correctly defined `BaseService`, but also had a leftover `from .base import BaseRepository` + `__all__ = ["BaseRepository"]` block copy-pasted in from `common/repositories/__init__.py` — since `.base` inside `common/services/base.py` refers to itself, this was importing from a module still mid-execution. Fixed by deleting the stray block.
+- **`common/services/__init__.py` found completely empty** while diagnosing the above (not something Copilot even caught) — meant `from common.services import BaseService` silently didn't work at all. Fixed with the same `from .base import BaseService` / `__all__` pattern every other `common/` subpackage uses.
+- **Misleading validator message** (Copilot): file-type error said "Allowed: image or PDF" while only `jpeg`/`png`/`pdf` were actually accepted — technically true-sounding but implies any image format works. Fixed to list `ALLOWED_CONTENT_TYPES` directly so the message can never drift from the actual allowed set again.
+- **Exception handler logging every `AppException` at `ERROR`** (Copilot) — contradicted our *own* HLD, which specifies `WARNING` for expected/recoverable issues like validation rejections and `ERROR` only for genuinely unhandled exceptions. Fixed: `level = logging.WARNING if exc.http_status < 500 else logging.ERROR`.
+- **Missing tests for `BaseRepository`/`BaseService`** (Copilot) — judgment call, not a clear bug: testing them meaningfully needs a real migrated Django model, which doesn't exist yet (no `Category`/`Expense` until later stories). Decided to leave as-is rather than build throwaway test-only model infrastructure just to close the gap early.
+
+### 5. Final manual review pass, before merging US-002
+
+Before merging, did one more full pass independent of Copilot: read every changed file in the branch (`git diff master...feature/us-002-common-package --stat` to enumerate them, then each file in full), reran `manage.py check` + the full test suite with `-v 2` (verbose, one line per test) + `git status` + `git fetch` and diffed local vs. remote to confirm the branch was fully pushed before giving a "safe to merge" verdict — not just trusting that earlier fixes were correct without re-verifying end to end.
+
+**Follow-up review, after merging:** asked specifically to re-examine `common/repositories/base.py` alone. Found one real, if currently low-risk, gap not caught by any prior review: `update()` uses plain `setattr(instance, attr, value)` for every keyword passed in — a typo'd field name (e.g. `amonut` instead of `amount`) doesn't raise anything; it just creates a throwaway Python attribute that `instance.save()` silently ignores, since Django only persists real model fields. This directly contradicts the "fail loudly" convention the rest of the file already follows correctly (e.g. `model` having no default). Decided to defer the fix until a real repository exists to verify a proper check against (a naive `hasattr` check isn't fully precise either, since it'd also pass for non-field properties).
+
+### Concepts learned today (quick recap)
+
+| Concept | One-line takeaway |
+|---|---|
+| `fix/` vs `feature/` branches | `feature/` for new work, `fix/` for bugs/hardening on already-shipped work |
+| Pre- vs. post-merge review feedback | Comments before merge → fixup commit on the *same* branch/PR; comments after merge → a *new* branch/PR |
+| `python-decouple` | Reads settings from environment variables/`.env` instead of hardcoding them in `settings.py` |
+| Secure-by-default | `DEBUG` should default to `False`; `SECRET_KEY` should have no default at all — fail loudly rather than silently insecure |
+| `.gitignore` negation (`!pattern`) | Un-ignores a file that a broader pattern above it would otherwise exclude |
+| Heredoc (`cat > file << 'EOF'`) | Quick way to write a short file's contents directly from the shell |
+| `COPY --chown=` | Sets file ownership during a Docker copy instead of a separate, slower, cache-unfriendly `RUN chown -R` afterward |
+| ABC vs. concrete generic base class | A design doc's `...` method body means "elided," not necessarily "must be abstract" — read intent, not just notation |
+| Constructor injection vs. class attribute | Inject via constructor only what genuinely needs to vary at runtime (a service's repository); fix what doesn't vary as a class attribute (a repository's model) |
+| Repository vs. Service (plain English) | Repository = *how* to get/store data. Service = *what* should happen, and whether/when the data gets involved |
+| `SimpleNamespace` for tests | Quick throwaway object with arbitrary attributes — useful for testing logic that only touches a couple of fields, without needing a real model |
+| Exception class name collisions | Django, DRF, and our own code all have a `ValidationError` — imports must be checked carefully, wrong one silently breaks `.details`/`.code` access |
+| Test output buffering | Passing tests may not show `print()` output the way failing ones do; `logging` is the more reliable choice for anything you need to see regardless of outcome |
+| Silent `setattr` risk | Setting arbitrary attributes by name (`setattr(obj, attr, value)`) doesn't validate the field exists — a typo fails silently instead of raising |
+
+### End-of-day state
+
+- `master` has: US-001's review-feedback fixes (env-based secrets, drf-spectacular routes, non-root Docker user) and the full `common/` package (exceptions, permissions, repositories, services, validators) with 14 passing tests.
+- Issue **#1** (already closed) got a follow-up PR (review feedback) merged. Issue **#2 (US-002)** closed via its PR, merged (squashed).
+- One known, deliberate gap: `BaseRepository.update()`'s silent-typo risk — left as-is until a real repository exists to fix it against properly.
+- Sprint 1 remaining: **US-003** (Signup/Login), **US-007** (Backend Token Verification), **US-005** (Password Reset) — all Firebase-dependent, next up together. Needs a Firebase project created first if one doesn't already exist.
