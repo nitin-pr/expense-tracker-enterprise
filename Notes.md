@@ -358,7 +358,7 @@ ls -la | grep env
 — which revealed `.env.example` existed but the real `.env` file had never actually been created (only the template was). Fixed with a **heredoc**:
 ```bash
 cat > .env << 'EOF'
-SECRET_KEY=django-insecure-6v2fdr&t*zf6(m*vol+z6poee4@tvxyynrc&vkosb^zy7dnw0c
+SECRET_KEY=<your-generated-secret-key-here>
 DEBUG=True
 EOF
 ```
