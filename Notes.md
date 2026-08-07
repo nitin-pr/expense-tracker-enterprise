@@ -459,6 +459,74 @@ Before merging, did one more full pass independent of Copilot: read every change
 
 **Follow-up review, after merging:** asked specifically to re-examine `common/repositories/base.py` alone. Found one real, if currently low-risk, gap not caught by any prior review: `update()` uses plain `setattr(instance, attr, value)` for every keyword passed in — a typo'd field name (e.g. `amonut` instead of `amount`) doesn't raise anything; it just creates a throwaway Python attribute that `instance.save()` silently ignores, since Django only persists real model fields. This directly contradicts the "fail loudly" convention the rest of the file already follows correctly (e.g. `model` having no default). Decided to defer the fix until a real repository exists to verify a proper check against (a naive `hasattr` check isn't fully precise either, since it'd also pass for non-field properties).
 
+### 6. Making the GitHub repo + Projects board public
+
+Before flipping visibility, checked for anything that shouldn't go public — and found something real: the actual `SECRET_KEY` value was sitting in `Notes.md`'s own committed history, quoted verbatim as part of a documented example command from earlier. Harmless while private; would become visible to anyone the moment the repo went public.
+
+```bash
+git grep -n "django-insecure" -- . ':!Notes.md'
+```
+- Confirmed the value existed nowhere else in tracked files — only in `Notes.md`'s example.
+
+Fix chosen: **rotate the key locally** (the real fix — generated a fresh one via `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`, updated `.env`, which is untracked so this alone doesn't touch git) **and redact the documented value going forward** in `Notes.md`, rather than rewriting git history to fully scrub it. Reasoning: the exposed value was about to become a *dead* key (no longer in use anywhere once rotated), so a destructive history rewrite (every commit hash changes, requires a force-push) wasn't worth it just to hide a value that no longer protects anything.
+
+```bash
+git ls-files | grep -i "^\.env$"   # confirms .env itself was never tracked, exit code 1 = no match
+```
+
+Then flipped both visibility settings — worth knowing these are **two separate, independent settings**, not one:
+```bash
+gh repo edit nitin-pr/expense-tracker-enterprise --visibility public --accept-visibility-change-consequences
+gh project edit 1 --owner nitin-pr --visibility PUBLIC --format json -q '.public'
+```
+- `gh repo edit` requires that extra `--accept-visibility-change-consequences` flag specifically for public changes — a deliberate friction point, since it's a consequential, hard-to-fully-reverse action (anything public can get cloned/cached/indexed before you'd ever flip it back).
+- `gh project edit` is the *separate* command for the Projects v2 board's own visibility — confirmed via `gh project edit --help` that `--visibility {PUBLIC|PRIVATE}` exists there too.
+
+**Real-world hiccup, not a mistake:** mid-push, hit a genuine network outage — `git push` failed with `Could not resolve host: github.com`. Diagnosed it wasn't git-specific before assuming anything:
+```bash
+nslookup github.com
+ping -n 2 github.com
+```
+Both timed out against the local router — confirming it was a local DNS/network problem, not a GitHub-side or git-specific issue. Waited, retried `git push` once connectivity returned, succeeded immediately. Lesson: when a command fails with a network-shaped error, verify with a tool *other* than the one that failed (here, `nslookup`/`ping` instead of just retrying `git push` blindly) before concluding anything about the root cause.
+
+### 7. US-003: Email/Password Signup & Login — Firebase console + frontend build
+
+**Firebase console setup** (browser, not terminal): created a new Firebase project, skipped Google Analytics (not needed for an auth backend), registered a **Web App** to get a `firebaseConfig` object (`apiKey`, `authDomain`, `projectId`, etc.) — confirmed these values are **not secret**, they're meant to be visible in frontend JS; Firebase's actual security boundary is enforced server-side, not by hiding them. Then enabled the **Email/Password** sign-in provider under Authentication → Sign-in method.
+
+Built the frontend using Firebase's **modular SDK loaded directly from their CDN as ES modules** — no npm/webpack build step, fitting this project's plain HTML/Bootstrap/JS stack:
+```javascript
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getAuth } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+```
+
+Structure built: `templates/base.html` (shared layout using Django's `{% block %}` template inheritance — child templates only define what's actually different), `templates/accounts/signup.html`/`login.html` (Bootstrap 5 forms), and `static/js/firebase-config.js`/`signup.js`/`login.js`.
+
+Core Firebase Auth calls used: `createUserWithEmailAndPassword(auth, email, password)` for signup, `signInWithEmailAndPassword(auth, email, password)` for login, and `userCredential.user.getIdToken()` on either to retrieve the signed JWT identifying that user — the token US-007 will later verify server-side. **Django never sees the password** — the entire signup/login exchange happens directly between the browser and Firebase, satisfying that acceptance criterion by construction, not by any special Django-side handling.
+
+`TemplateView.as_view(template_name=...)` used in `config/urls.py` to serve these pages — Django's simplest built-in generic view, appropriate since all real logic is client-side JS talking to Firebase, not server-side business logic.
+
+**Scope decision made explicitly, not by accident:** noticed signup doesn't verify the email address is actually owned by the signer. Confirmed this is deliberate — **US-004 (Email Verification)** is its own separate, lower-priority (`Should`) backlog story scheduled for Sprint 6, not bundled into US-003 (`Must`, Sprint 1). Considered pulling it forward since we were already in `signup.js`, decided against it — stuck to the sprint plan rather than scope-creeping ad hoc.
+
+Tested against the real, live Firebase project: signed up a test user, confirmed it appeared in the Firebase console's Authentication → Users tab, confirmed a token was returned, then logged in with the same credentials.
+
+### 8. Copilot review on US-003 — seven findings, triaged
+
+1. **ID token logged to console** — real risk (bearer credential, could leak via shared logs/screen recordings/extensions). Removed.
+2. **Raw Firebase `error.message` shown to users** (e.g. `"Firebase: Error (auth/invalid-credential)."`) — ties directly to US-003's own "clear error message" AC. Fixed with a shared `static/js/auth-errors.js` mapping `error.code` → friendly text, imported by both `signup.js` and `login.js` (DRY — same reasoning as `BaseRepository`/`BaseService`). Notable detail: modern Firebase deliberately returns the *same* `auth/invalid-credential` code for both "wrong password" and "no such account" during login, to prevent **user enumeration** (an attacker probing which emails have accounts) — kept that same generic message for both rather than trying to be more specific.
+3. **Token textarea had no accessible label** — fixed by replacing a plain `<p>` with a proper `<label for="token-text">`.
+4. **Token only displayed, never persisted** — real gap vs. the AC's "attached as Authorization: Bearer on subsequent API calls." Fixed with `sessionStorage.setItem("idToken", idToken)`. Chose `sessionStorage` over `localStorage` deliberately: it clears when the tab/browser closes, shortening how long a bearer token sits in browser storage — reasonable for something Firebase itself also expires after an hour regardless.
+5. **Hardcoded `firebaseConfig` in committed JS** — genuine judgment call (unlike `SECRET_KEY`, these values aren't actually secret, so this was about environment-separation hygiene, not confidentiality). Decided **to** build the fix this time (opposite call from the earlier `SECRET_KEY`-dev-fallback decision) — moved the six config values into `.env`, added a Django **context processor** (`common/context_processors.py`) that runs automatically for every template render, and used Django's `json_script` template filter to safely emit them as JSON:
+   ```html
+   {{ firebase_config|json_script:"firebase-config-data" }}
+   ```
+   Worth remembering *why* `json_script` specifically, not just `{{ firebase_config }}` directly: Django would render Python's dict `repr()` — single-quoted, `True`/`None` instead of valid JS syntax — which is a real bug, not a style nitpick. `json_script` renders a properly-escaped `<script type="application/json">` data container instead, which JS then reads with `JSON.parse(...)`.
+6. **Missing `name`/`autocomplete` attributes** on email/password inputs — cheap accessibility/UX fix, enables password-manager autofill (`autocomplete="new-password"` on signup vs. `"current-password"` on login — browsers treat these differently).
+7. **Bootstrap CDN missing Subresource Integrity (SRI)** — a compromised CDN could otherwise silently serve tampered CSS/JS. **Did not guess the hash** — a wrong SRI hash doesn't degrade gracefully, it just fails the resource load entirely with a cryptic browser error. Used `WebFetch` against Bootstrap's own official docs page to get verified hashes, which turned out to be for version 5.3.8 (current) rather than the originally-pinned 5.3.3 — since hashes are tied to exact file bytes, bumped the version to match the verified hash rather than trying to find a 5.3.3-specific one.
+
+### 9. US-007 kickoff (started, not finished today)
+
+US-007 is what makes the tokens from US-003 actually *mean* something server-side — Django needs to verify a token is genuine, then resolve/create the matching local `User`. This needs a **service account key** from Firebase — a different, genuinely secret credential from the frontend `firebaseConfig` (this one grants admin-level backend access to the Firebase project, never goes in frontend JS or gets committed). Guided to Firebase console → Project Settings → Service Accounts → "Generate new private key." Session ended here — key not yet generated/wired in; pick this up next time before writing any of the `accounts` app, `User` model, or `FirebaseAuthentication` DRF class.
+
 ### Concepts learned today (quick recap)
 
 | Concept | One-line takeaway |
@@ -477,10 +545,21 @@ Before merging, did one more full pass independent of Copilot: read every change
 | Exception class name collisions | Django, DRF, and our own code all have a `ValidationError` — imports must be checked carefully, wrong one silently breaks `.details`/`.code` access |
 | Test output buffering | Passing tests may not show `print()` output the way failing ones do; `logging` is the more reliable choice for anything you need to see regardless of outcome |
 | Silent `setattr` risk | Setting arbitrary attributes by name (`setattr(obj, attr, value)`) doesn't validate the field exists — a typo fails silently instead of raising |
+| Committed secrets live forever in history | Redacting a file's *current* content doesn't remove a value from earlier commits — only a history rewrite does, which has its own real costs |
+| Repo visibility vs. Projects board visibility | Two separate `gh` commands/settings (`gh repo edit --visibility`, `gh project edit --visibility`) — flipping one doesn't touch the other |
+| Diagnosing network failures | When a command fails with a network-shaped error, check with an independent tool (`nslookup`/`ping`) before assuming it's the original tool's fault |
+| Firebase frontend config vs. service account | `firebaseConfig` (apiKey, etc.) is meant to be public in frontend JS; a service account key is genuinely secret backend-only admin access — very different risk levels despite both being "Firebase credentials" |
+| Context processor | A function Django runs for *every* template render, merging its return value into that template's context automatically — avoids passing the same data manually from every view |
+| `json_script` template filter | Safely serializes a Python value to JSON inside a non-executing `<script type="application/json">` tag; `{{ value }}` alone would render Python's `repr()`, not valid JSON/JS |
+| SRI (`integrity`/`crossorigin`) | Browser verifies a downloaded CDN file's hash before running it — but the hash is tied to exact file bytes, so it must match the *exact* version being loaded |
+| `sessionStorage` vs `localStorage` | `sessionStorage` clears when the tab/browser closes — shorter exposure window, reasonable default for something like an auth token |
+| User enumeration | Deliberately returning the *same* error for "wrong password" and "no such account" prevents an attacker from using error differences to discover which emails have accounts |
 
 ### End-of-day state
 
-- `master` has: US-001's review-feedback fixes (env-based secrets, drf-spectacular routes, non-root Docker user) and the full `common/` package (exceptions, permissions, repositories, services, validators) with 14 passing tests.
-- Issue **#1** (already closed) got a follow-up PR (review feedback) merged. Issue **#2 (US-002)** closed via its PR, merged (squashed).
-- One known, deliberate gap: `BaseRepository.update()`'s silent-typo risk — left as-is until a real repository exists to fix it against properly.
-- Sprint 1 remaining: **US-003** (Signup/Login), **US-007** (Backend Token Verification), **US-005** (Password Reset) — all Firebase-dependent, next up together. Needs a Firebase project created first if one doesn't already exist.
+- `master` has: US-001's review-feedback fixes, the full `common/` package (US-002), and now the complete US-003 signup/login flow (env-injected Firebase config, friendly errors, sessionStorage token persistence, SRI-hardened Bootstrap CDN, accessibility fixes) — all reviewed twice (Copilot + prior manual pass) and merged.
+- The **GitHub repo** and **Projects board** are both now public; the `SECRET_KEY` exposed in `Notes.md`'s history was rotated and the documented example redacted before doing so.
+- Issues **#1** (follow-up merged), **#2**, **#3** all closed via their respective PRs.
+- One still-open known gap from Day 2: `BaseRepository.update()`'s silent-typo risk — still deferred.
+- **US-007 (Backend Token Verification) started but not complete** — stopped right after being pointed to generate a Firebase service account key; nothing in the `accounts` app has been built yet.
+- Sprint 1 remaining: **US-007** (in progress), **US-005** (Password Reset).
