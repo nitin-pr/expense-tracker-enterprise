@@ -8,16 +8,17 @@
     <form id="signup-form">
         <div class="mb-3">
             <label for="email" class="form-label">Email</label>
-            <input type="email" class="form-control" id="email" required>
+            <input type="email" class="form-control" id="email" name="email" autocomplete="email" required>
         </div>
         <div class="mb-3">
             <label for="password" class="form-label">Password</label>
-            <input type="password" class="form-control" id="password" required minlength="6">
+            <input type="password" class="form-control" id="password" name="password" autocomplete="new-password"
+                required minlength="6">
         </div>
         <button type="submit" class="btn btn-primary w-100">Sign Up</button>
     </form>
     <div id="token-display" class="mt-3 d-none">
-        <p class="text-success">Signed up! ID token (this is what'll be sent as the Authorization header once US-007 builds the backend side):</p>
+        <label for="token-text" class="form-label text-success">Signed up! ID token (for testing):</label>
         <textarea class="form-control" rows="4" readonly id="token-text"></textarea>
     </div>
     <p class="mt-3"><a href="{% url 'login' %}">Already have an account? Log in</a></p>
