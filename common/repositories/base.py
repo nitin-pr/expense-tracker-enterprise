@@ -16,7 +16,12 @@ class BaseRepository(Generic[T]):
         return self.model.objects.create(**data)
 
     def update(self, instance: T, **data) -> T:
+        valid_fields = {f.name for f in instance._meta.get_fields()}
         for attr, value in data.items():
+            if attr not in valid_fields:
+                raise AttributeError(
+                    f"{type(instance).__name__} has no field '{attr}'"
+                )
             setattr(instance, attr, value)
         instance.save()
         return instance
