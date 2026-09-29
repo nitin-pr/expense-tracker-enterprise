@@ -26,6 +26,9 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+# SECURITY WARNING: define the correct hosts in production!
+FIREBASE_SERVICE_ACCOUNT_KEY_PATH = config('FIREBASE_SERVICE_ACCOUNT_KEY_PATH')
+
 ALLOWED_HOSTS = []
 
 
@@ -40,11 +43,18 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'drf_spectacular',
+    'apps.accounts',
 ]
 
 REST_FRAMEWORK = {
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema', 
-    'EXCEPTION_HANDLER': 'common.exceptions.handler.app_exception_handler', 
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'EXCEPTION_HANDLER': 'common.exceptions.handler.app_exception_handler',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'apps.accounts.authentication.FirebaseAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
