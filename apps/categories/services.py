@@ -1,4 +1,4 @@
-from django.db.models import ProtectedError
+from django.db.models import RestrictedError
 
 from common.exceptions import ValidationError
 from common.services import BaseService
@@ -16,7 +16,7 @@ class CategoryService(BaseService):
     def delete_category(self, category):
         try:
             self.repository.delete(category)
-        except ProtectedError as exc:
+        except RestrictedError as exc:
             # Surfaces the DB's ON DELETE RESTRICT as a clear 400, not a raw 500 -
             # per US-013's AC, a graceful surfacing of the constraint, not a bypass.
             raise ValidationError(
