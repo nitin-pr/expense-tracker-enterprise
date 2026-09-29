@@ -73,3 +73,13 @@ class ExpenseServiceTests(TestCase):
         expense = self._create()
         updated = self.service.update_expense(self.user, expense, title="Updated Coffee")
         self.assertEqual(updated.title, "Updated Coffee")
+
+    def test_update_expense_can_change_to_own_category(self):
+        # Closes a real coverage gap: no prior test exercised a *successful*
+        # category change through repository.update()'s field-name validation
+        # (BaseRepository.update() checks the kwarg against instance._meta.get_fields()
+        # - confirmed separately that a FK's .name is "category", not "category_id",
+        # but nothing proved the full path works end to end until this test).
+        expense = self._create(category=self.default_category)
+        updated = self.service.update_expense(self.user, expense, category=self.own_category)
+        self.assertEqual(updated.category, self.own_category)
