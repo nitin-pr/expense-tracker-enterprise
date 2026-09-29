@@ -28,4 +28,5 @@ urlpatterns = [
     path('login/', TemplateView.as_view(template_name='accounts/login.html'), name='login'),
     path('forgot-password/', TemplateView.as_view(template_name='accounts/forgot_password.html'), name='forgot_password'),
     path('api/auth/', include('apps.accounts.urls')),
+    path('api/categories/', include('apps.categories.urls')),
 ]
