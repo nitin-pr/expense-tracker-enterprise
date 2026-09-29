@@ -563,3 +563,114 @@ US-007 is what makes the tokens from US-003 actually *mean* something server-sid
 - One still-open known gap from Day 2: `BaseRepository.update()`'s silent-typo risk — still deferred.
 - **US-007 (Backend Token Verification) started but not complete** — stopped right after being pointed to generate a Firebase service account key; nothing in the `accounts` app has been built yet.
 - Sprint 1 remaining: **US-007** (in progress), **US-005** (Password Reset).
+
+---
+
+## Day 3 — 2026-09-29 — Finishing Sprint 1 + all of Sprint 2 (Categories & Expense CRUD)
+
+**Context shift for this session, worth naming explicitly:** ~7 weeks passed since Day 2. Picked back up with "complete Sprint 1 and Sprint 2" and Auto Mode active — a genuinely different working mode from Days 1-2's "I guide, you type every line." Here, execution was direct: writing files, running commands, and committing/merging PRs without pausing at each step, while still keeping the same engineering discipline (branch-per-story, tests before merge, real verification over assumption) built up over the first two days. The learning value shifts accordingly — less "typing muscle memory," more "here's what a real multi-hour push through a backlog actually looks like, bugs included."
+
+### 1. The environment had quietly broken during the gap
+
+Resuming hit an immediate wall: `python manage.py check` failed with a garbled "No Python at..." error.
+
+```bash
+git check-ignore -v firebase-service-account.json   # sanity-checked secrets survived the gap first
+where python
+```
+- `where python` no longer listed Python 3.11 at all — only 3.14. Checked directly:
+```bash
+ls -la "C:\Users\user\...\Python311\python.exe"   # No such file or directory
+```
+Python 3.11 (what the venv was built against) had been removed from the machine entirely sometime in the gap. A venv doesn't bundle its own interpreter — it references the base install — so this wasn't fixable, only rebuildable.
+
+```bash
+py -0                       # list all Python versions the launcher knows about - only 3.14 available
+rm -rf venv
+py -3.14 -m venv venv
+source venv/Scripts/activate
+python -m pip install --upgrade pip -q   # `pip install --upgrade pip` alone fails on Windows -
+                                          # pip can't overwrite its own running executable;
+                                          # `python -m pip` sidesteps that
+pip install -r requirements.txt
+```
+Rather than assume Django 5.2 either does or doesn't support Python 3.14 (a version that postdates this project's original planning), verified practically: full install succeeded with native `cp314` wheels for every package with C extensions (`grpcio`, `google-crc32c`, `rpds-py`), and `manage.py check` + the full existing test suite (14 tests) passed clean. Real compatibility questions get answered by running the thing, not by recalling documentation that might be stale.
+
+### 2. Real bugs in already-written (but never tested) US-007 code
+
+The `apps/accounts/` code from Day 2's final session was still sitting uncommitted, never actually exercised end to end. Reading it fresh surfaced three real bugs before writing anything new:
+1. **`authentication.py`**: `self.user_repository = UserRepository()` in `__init__`, but `authenticate()` called `self.user_repo....` — an attribute name that didn't exist. Would have raised `AttributeError` the moment a real token was verified.
+2. **`WhoAmIView`** (the protected test endpoint discussed at length on Day 2) had never actually been written — `views.py` was still Django's default stub.
+3. **`config/urls.py`** never got the `include('apps.accounts.urls')` wiring discussed.
+
+None of these were caught earlier because the session ended right before the "test it live in a browser" step. Lesson already learned on Day 1 (unsaved files giving false confidence) generalized: **code that's never actually executed carries no real confidence, no matter how carefully it was reasoned through when written.**
+
+### 3. `on_delete=RESTRICT` vs `on_delete=PROTECT` — different exceptions, verified not guessed
+
+`DATABASE_DESIGN.md` specifies `ON DELETE RESTRICT` for `expenses.category_id`. Django has *two* similar-but-distinct options here. Rather than assume `RESTRICT` behaves like the more commonly-seen `PROTECT` (which raises `ProtectedError`), checked directly:
+```python
+from django.db.models.deletion import RestrictedError   # confirmed: RESTRICT raises this, not ProtectedError
+```
+This mattered concretely: `CategoryService.delete_category` (written back on Day 2, before `Expense` existed to reference a category) was catching `ProtectedError` — dead code that would have silently let a real `RestrictedError` become an unhandled 500 the first time it actually mattered. Fixed once `Expense.category` was actually built with `on_delete=models.RESTRICT`, and proved with a real `Expense` row referencing a real `Category` (US-013's actual acceptance criterion, finally testable once US-014 existed).
+
+### 4. `is_authenticated` — caught only because a full-pipeline test existed, not just unit tests
+
+Writing `WhoAmIView`'s tests, the mocked-`AuthProvider` unit tests (matching US-007's literal AC wording) all passed — but a separate test hitting the *real* URL through DRF's `APIClient` failed:
+```
+AttributeError: 'User' object has no attribute 'is_authenticated'
+```
+DRF's `IsAuthenticated` permission checks `request.user.is_authenticated` — a convention from Django's built-in `AbstractBaseUser` that this project's plain `User` model (intentionally not inheriting from it, since Firebase owns identity) doesn't have. The isolated `authenticate()` unit tests never touched DRF's actual permission-checking code path, so they couldn't catch this. Fixed with a simple `@property` returning `True` (any resolved `User` instance is authenticated by definition — `FirebaseAuthentication` never returns one otherwise). **Concrete argument for writing both kinds of test**: narrow unit tests prove your own logic is correct in isolation; full-pipeline tests prove your logic actually *connects* to the framework correctly. Neither alone is sufficient.
+
+### 5. Two different "who owns this" fields needed two different permission classes
+
+`common.permissions.IsOwner` (built Day 2) hardcodes `obj.user_id` — fine for `Expense`/`Income`/`Budget` (all use a `user` FK per the DB design), wrong for `Category` (deliberately uses `created_by` instead — a more precise name). Rather than bend the data model to fit an existing permission class, or make `IsOwner` needlessly generic for a problem that only affects one model, wrote a small `IsCategoryOwner` local to `apps/categories/`, checking `obj.created_by_id`. A `None` `created_by_id` (default categories) never equals a real user id, which for free satisfies "default categories can't be edited/deleted by anyone" with no special-casing.
+
+### 6. 404 vs 403 genuinely differs by model, and the reasoning matters
+
+`Category` and `Expense` both needed "you can only touch your own records" enforcement, but landed on opposite HTTP semantics:
+- **Category**: every category (defaults + everyone's custom ones) is visible via the list endpoint. No "existence leakage" risk in confirming a specific ID exists but isn't yours — so `CategoryDetailView` uses `IsCategoryOwner` normally, producing a real **403** for "exists, not yours."
+- **Expense**: never visible cross-user at all (no shared list). Revealing "this ID exists, just not to you" via 403 would leak information an attacker could use to enumerate valid IDs. So `ExpenseDetailView` deliberately skips DRF's permission-class mechanism entirely and folds "doesn't exist" and "exists but isn't mine" into the identical **404** path, by design, in `get_object()` itself.
+
+Same underlying concern ("don't leak what an attacker can't already see") as the login-error-message reasoning from Day 2 — reapplied at the HTTP-status-code layer instead of the error-message layer.
+
+### 7. A real gap in the original sprint planning, resolved with a build-order fix, not a doc rewrite
+
+`BACKLOG.md` lists US-013 (protect categories in use) as depending only on US-011. But the actual protection mechanism is the FK's `on_delete=RESTRICT`, which has to live *on the Expense model* — which doesn't exist until US-014. US-013 as written is mechanically untestable before US-014 exists. Resolved by building in dependency-correct order (US-010 → US-011 → US-014 → US-015 → US-013) rather than the nominal listed order, flagged explicitly rather than silently reordered. Sometimes a plan's stated dependencies are incomplete, and the fix is to notice and route around it, not to treat the doc as ground truth over the actual system.
+
+### 8. Self-review caught a factual error in a PR description before merge
+
+Wrote "Full test suite (99 tests total)" in a PR body from memory/estimate rather than checking. Before merging, re-ran the suite to verify — actual count was 72, not 99 — and corrected the PR description (`gh pr edit`) before merging. Small thing, but the standard applied to the user's own claims in earlier sessions ("verify, don't just assert") applies the same way to summaries written about one's own work.
+
+### 9. A genuine test-coverage gap found during final review, not by the tests themselves
+
+Final review pass (reading every changed file fresh, same rigor as the Day 2 "green flag" review) noticed: `ExpenseService.update_expense` validates category-*ownership* on a category change, but no test exercised a *successful* category change reaching all the way through to `BaseRepository.update()`'s field-name check (`instance._meta.get_fields()`) - the change could work by construction and still have never been proven to. Verified the FK's `.name` is `"category"` (not `"category_id"`) via direct inspection, then wrote the missing test. The lesson from Day 2 held again: a passing test suite proves what's tested, not what's true — worth actively hunting for what *isn't* covered, not just trusting green output.
+
+### 10. Loose ends, left visible rather than silently ignored
+
+- **GitHub Projects board status desync**: issues #10 and #11 (closed by one PR that closed both at once) didn't auto-flip to "Done" on the board the way single-issue-closing PRs did — fixed manually via `gh project item-edit`, but the underlying cause (multi-issue-closing PRs and board automation) wasn't root-caused.
+- **Docker build not verified this session**: Docker Desktop wasn't running in this environment and couldn't be started without GUI access. `requirements.txt` didn't change and all new code is plain Python copied in via the existing `COPY . .`, so risk is low, but this is stated as an assumption, not a verified fact — worth an actual `docker build` next session before treating it as proven.
+
+### Concepts learned today (quick recap)
+
+| Concept | One-line takeaway |
+|---|---|
+| A venv references, not bundles, its base interpreter | Removing the Python version a venv was built against breaks it permanently — rebuild, don't try to repair |
+| `python -m pip install --upgrade pip` | The `pip` executable can't overwrite itself while running on Windows; invoking it via `python -m pip` avoids the self-lock |
+| Verify version compatibility by running, not recalling | Especially for anything that postdates a project's original planning - actual install + test run beats memory |
+| Code that's never executed carries no real confidence | Reasoning carefully about code while writing it doesn't substitute for actually running it, no matter how much time passed in between |
+| `on_delete=RESTRICT` vs `on_delete=PROTECT` | Similar-sounding, different exception classes (`RestrictedError` vs `ProtectedError`) - verify library internals directly rather than assume |
+| Unit tests vs full-pipeline tests | Isolated unit tests prove your logic; full-pipeline tests prove your logic actually connects to the framework - `is_authenticated` was invisible to the former, caught immediately by the latter |
+| One permission class doesn't always fit every model | A hardcoded field name (`user_id`) in a shared permission class breaks for a model that deliberately names its ownership field differently (`created_by`) - don't force the data model to match the tool |
+| 404 vs 403 depends on what's otherwise visible | The right status code for "not yours" depends on whether the resource's existence is already knowable through some other path (Category's shared list) or not (Expense's total privacy) |
+| A backlog's stated dependencies can be incomplete | US-013's real dependency on US-014 wasn't written down anywhere - noticing and routing around a planning gap is part of the job, not a sign the plan should be trusted blindly |
+| Verify your own summaries before publishing them | A wrong number in a PR description is still wrong even when self-authored under time pressure - re-check, don't estimate |
+| Green tests prove coverage, not completeness | Actively look for what a passing suite *doesn't* exercise, especially for code paths that "should obviously work" |
+
+### End-of-day state
+
+- **Sprint 1 complete**: US-001, 002, 003, 005, 007 all merged. Issue tracker and Projects board both accurate.
+- **Sprint 2 complete**: US-010, 011, 013, 014, 015 all merged - full Category (defaults + custom, with delete protection) and Expense (create + detail get/update/delete) functionality, backed by 76 passing tests.
+- `common/constants/` gained its first real content (`PaymentMethod`), deferred since Day 2 until Expense actually needed it.
+- Local dev environment rebuilt on Python 3.14 (3.11 no longer available on this machine) - Django 5.2 confirmed compatible.
+- Two open items, stated honestly rather than assumed fine: Docker build not re-verified this session; GitHub Projects board automation has a rough edge with multi-issue-closing PRs.
+- Sprint 3 (`US-016` Search, `US-017` Filter, `US-018` Sort & Paginate Expenses, `US-020` Record Income, `US-021` Income CRUD) is next per `SPRINT_PLAN.md`.
