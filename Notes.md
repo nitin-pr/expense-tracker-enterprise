@@ -674,3 +674,69 @@ Final review pass (reading every changed file fresh, same rigor as the Day 2 "gr
 - Local dev environment rebuilt on Python 3.14 (3.11 no longer available on this machine) - Django 5.2 confirmed compatible.
 - Two open items, stated honestly rather than assumed fine: Docker build not re-verified this session; GitHub Projects board automation has a rough edge with multi-issue-closing PRs.
 - Sprint 3 (`US-016` Search, `US-017` Filter, `US-018` Sort & Paginate Expenses, `US-020` Record Income, `US-021` Income CRUD) is next per `SPRINT_PLAN.md`.
+
+---
+
+## Day 4 — 2026-10-13 — Sprint 3 (Expense search/filter/sort/pagination + Income) + Sprint 4 (Budgets with race-safe alerts)
+
+**Picked up after another ~2-week gap.** Environment check this time came back clean (same Python 3.14 venv from Day 3, still intact) - worth doing the check anyway rather than assuming, since Day 3 proved it can't be taken for granted.
+
+### 1. Income: same shape as Expense, deliberately
+
+`apps/income/` mirrors `apps/expenses/` closely on purpose: same 404-not-403 reasoning on the detail view (income is never visible cross-user, same as expenses, unlike categories), same `IncomeRepository.sum_for_period` method shape (added now even though nothing calls it yet - US-022 Savings Calculation and the eventual Dashboard will need it, and it's cheaper to add alongside the model that defines what it sums than to remember later). Nothing new conceptually here, which is itself worth noting: once a pattern is established (Service validates, Repository persists, 404-vs-403 decided by "is this ever shared"), applying it to a new, structurally similar entity should feel closer to filling in a template than solving a new problem.
+
+### 2. Enhancing an existing, already-merged endpoint instead of building a new one
+
+US-016/017/018 don't get their own endpoints - they're all enhancements to the *same* `GET /api/expenses/` from Sprint 2. Built an `ExpenseFilter` value object (per the LLD) that does all query-param parsing and validation in one place - invalid dates, non-numeric amounts, a `date_from` after `date_to`, or a sort field outside an explicit allow-list all raise a clear `ValidationError` there, before the repository ever builds a query. Sorting specifically got an allow-list (`expense_date`/`amount`, both directions) rather than passing `?ordering=` straight to `.order_by()` - not a security hole with the Django ORM (it validates field names against the model either way), but an arbitrary/wrong field name should get a clean 400, not a confusing 500.
+
+For pagination: DRF's `PageNumberPagination` instantiated directly inside a plain `APIView`, rather than switching that view to `GenericAPIView`/`ListAPIView`. `paginate_queryset()`/`get_paginated_response()` are public methods that work standalone - no need to adopt DRF's generic-view machinery project-wide just to get pagination on one endpoint, consistent with this project's preference for explicit `APIView`s over DRF's more automatic generics.
+
+### 3. A second real cross-sprint dependency gap, same category as Day 3's US-013/US-014 one
+
+US-025/026's race-safety mechanism (`UNIQUE(budget_id, threshold_tier)`, per `DATABASE_DESIGN.md`) lives on the **Notification** table - but `Notification` is nominally **US-027's** story, in **Sprint 5**. Same resolution as before: built the minimal `Notification` *model* now (just enough fields to make the constraint real and the race-safety test meaningful), explicitly deferring the full feature (list endpoint, mark-as-read, multiple `NotificationChannel`/`NotificationDispatcher` strategies per the LLD) to when US-027 actually needs that richness. A one-implementation Strategy pattern isn't pulling its weight yet - `NotificationService` persists a `Notification` row directly for now.
+
+### 4. Cross-app coupling, both directions, kept deliberately narrow
+
+`ExpenseService.create_expense` now has to trigger budget evaluation, and `BudgetService` has to read expense totals - a genuine two-way coupling between `apps.expenses` and `apps.budgets`. Handled with:
+- **Local (function-level) imports on both sides.** Not because there's a real circular import (traced it through: `expenses.services` -> `budgets.services` -> `expenses.repositories`, which never reaches back to `expenses.services` - no actual cycle), but because reasoning about cross-app import order correctly, once, isn't worth the risk of it becoming a real problem after some future refactor. Cheap insurance.
+- **`BudgetThresholdEvaluator`**, a thin wrapper around `BudgetService` that `ExpenseService` depends on instead of the full service - per the LLD's own stated reasoning, so `ExpenseService`'s dependency surface stays narrow (budget creation and status queries are none of its business).
+- **Observer registration living in the subscriber, not the subject**: `NotificationService` registers itself with `BudgetService` from `apps/notifications/apps.py`'s `ready()`, not the other way around - matches Observer pattern semantics, and confirmed safe regardless of `INSTALLED_APPS` order (Django populates every app's models before calling any app's `ready()`).
+
+### 5. A real transaction bug, caught by running the tests, not by inspection
+
+`NotificationService.on_threshold_crossed` caught `IntegrityError` around the `Notification.objects.create()` call - but every test that exercised the *actual duplicate* path failed with `TransactionManagementError: You can't execute queries until the end of the 'atomic' block`, on a completely different, later line. The real mechanism: Django doesn't let you just catch an exception and keep going inside an `atomic()` block - once any query fails inside one, the *entire* block is marked broken until it's rolled back, and catching the exception in plain Python doesn't do that rollback. The fix is a **nested `atomic()`** around just the risky statement, which Django implements as a **SAVEPOINT** when already inside an outer transaction - rolling back just that one failed insert, leaving the surrounding transaction (here: `BudgetService`'s own lock-and-evaluate block, or a test's outer wrapper) healthy. This would have broken in production exactly the same way, not just in tests - a good reminder that "catch the specific exception you expect" is necessary but not sufficient inside a transaction; you also have to think about what state the *transaction itself* is in afterward.
+
+### 6. Decimal formatting inconsistency - one bug, two places, same root cause
+
+`BudgetService.get_status` returned a plain dict with raw `Decimal` values straight from a `Sum()` aggregate, bypassing the formatting guarantee a `DecimalField` serializer normally provides. `Decimal('300')` and `Decimal('300.00')` are mathematically equal but render differently once serialized - caught by a test that assumed `"300.00"` and got `"300"`. Fixed by explicitly `.quantize(Decimal("0.01"))`-ing every monetary value before returning. Then, during a deliberate second look at this code before merging (not prompted by a failing test - the *same* unquantized pattern was sitting in `NotificationService`'s message text, just as display copy rather than a structured field, so no test happened to assert its exact wording), found and fixed the identical root cause a second time. Worth remembering as a category, not a one-off: "a raw ORM/aggregate value bypassing the formatting layer that normally applies" can recur anywhere the same shortcut gets taken, and it's worth actively checking nearby code for the same shape of mistake once one instance is found, not just fixing the one a test happened to catch.
+
+### 7. SQLite's locking model, actually verified rather than assumed, twice
+
+First: directly confirmed `connection.features.has_select_for_update` is `False` on SQLite - our `select_for_update()` call is a **silent no-op** on this dev/test database, something that would quietly do real row-level locking on Postgres (production) but does nothing extra here. This matters for honestly describing what a test proves: on *this* database, the real protection is the DB-level `UNIQUE(budget, threshold_tier)` backstop, not the lock - which is exactly the point of having both layers, per `DATABASE_DESIGN.md`'s own "defense in depth" framing.
+
+Second: a genuine two-thread concurrency test against SQLite's shared-cache in-memory test database hit `OperationalError('database table is locked')` - a different, **non-retriable** error from the busy-timeout-retriable `'database is locked'` case. Tried the standard fix (raising `DATABASES['default']['OPTIONS']['timeout']` from the 5s default to 20s) - it didn't help, and the failure was near-instant either way, confirming it wasn't a timeout issue at all. Rather than keep fighting SQLite's own locking model to make a thread-based test pass, the test is explicitly skipped **on SQLite specifically** (`@unittest.skipIf(connection.vendor == "sqlite", ...)`), with the full reasoning written into the skip message itself - not deleted, not silently `pass`ed, visibly skipped with an explanation and a note that it should be re-verified against PostgreSQL. The *same safety property* (repeated/duplicate evaluation never double-notifies for one tier) is proven instead by a deterministic sequential test with no threading involved at all - just two direct calls to the evaluation method back to back. Knowing when a test's unreliability is telling you something true about the *environment* rather than about the *code* - and documenting that distinction instead of either deleting the inconvenient test or leaving it flaky - is its own kind of correctness.
+
+### Concepts learned today (quick recap)
+
+| Concept | One-line takeaway |
+|---|---|
+| Established patterns compound | A new entity (Income) that's structurally similar to an existing one (Expense) should mostly be "fill in the template," not fresh design work - a sign the earlier design decisions were sound |
+| Enhancing vs. replacing an endpoint | Search/filter/sort/pagination landed on the *same* `GET` endpoint as Sprint 2's create - they're refinements of one queryset, not three new resources |
+| Sort-field allow-lists | Restrict `?ordering=` to an explicit safe set rather than passing client input straight to `.order_by()` - not an injection risk with the ORM, but an invalid value should be a clean 400, not a 500 |
+| DRF pagination without generics | `paginate_queryset()`/`get_paginated_response()` work standalone on a plain `APIView` - no need to switch to `ListAPIView` just for pagination |
+| Local imports for cross-app coupling | Even without a *real* circular import, a function-level import between two apps that depend on each other is cheap insurance against a future refactor accidentally creating one |
+| Observer registers with subject, not reverse | The subscriber (`NotificationService`) calls `register_observer()` on the subject (`BudgetService`) - keeps the subject ignorant of who's listening |
+| `atomic()` blocks don't un-break on `except` | Catching an exception from a failed query inside an atomic block doesn't recover the transaction - only a nested `atomic()` (a SAVEPOINT) rolls back just that failed statement, leaving the rest usable |
+| One formatting bug, multiple locations | A root cause ("raw aggregate Decimal bypassing a formatting layer") is worth searching for elsewhere once found once, not just patching the one instance a test happened to catch |
+| `has_select_for_update` varies by backend | Verified directly rather than assumed: `False` on SQLite (silent no-op), real row-level locking only on Postgres - changes what a passing concurrency test actually proves |
+| Not every test failure is a code bug | A test that's unreliable because of the *environment* (SQLite's locking model) rather than the *code* should be documented and skipped with reasoning, not deleted or left flaky |
+
+### End-of-day state
+
+- **Sprint 3 complete**: US-016, 017, 018, 020, 021 all merged.
+- **Sprint 4 complete**: US-023, 024, 025, 026 all merged - budgets with live status, Observer-based threshold alerts, and a race-safety guarantee that's honestly documented rather than oversold on this database.
+- `common/constants/` gained `IncomeSource` and `BudgetThreshold`, each added exactly when the story that needed it arrived.
+- Two real bugs fixed before merging (transaction savepoint, Decimal formatting x2) - caught by running tests and by a deliberate second look, not assumed away.
+- 136 tests passing, 1 honestly skipped with a documented reason (SQLite concurrency limitation, not a code issue).
+- `apps/notifications/` now exists with just a model + a minimal service - the full feature (US-027, list endpoint, mark-as-read, multiple channels) is still Sprint 5's job.
+- Sprint 5 (`US-027` In-App Notifications, `US-031` Dashboard Summary, plus a hardening/QA buffer per `SPRINT_PLAN.md`) is next - and is explicitly the MVP-completion milestone per the original sprint plan.
