@@ -740,3 +740,49 @@ Second: a genuine two-thread concurrency test against SQLite's shared-cache in-m
 - 136 tests passing, 1 honestly skipped with a documented reason (SQLite concurrency limitation, not a code issue).
 - `apps/notifications/` now exists with just a model + a minimal service - the full feature (US-027, list endpoint, mark-as-read, multiple channels) is still Sprint 5's job.
 - Sprint 5 (`US-027` In-App Notifications, `US-031` Dashboard Summary, plus a hardening/QA buffer per `SPRINT_PLAN.md`) is next - and is explicitly the MVP-completion milestone per the original sprint plan.
+
+---
+
+## Day 5 — 2026-10-13 — Sprint 5: In-App Notifications, Dashboard, and the MVP hardening pass
+
+Same session as Day 4 (no gap this time) - Sprint 5 is explicitly called out in `SPRINT_PLAN.md` as the MVP-completion milestone, and it's the sprint the plan itself says needs deliberate hardening, not just new stories.
+
+### 1. A Strategy pattern deferred on purpose, then built for real once a second trigger justified it
+
+Sprint 4 built `NotificationService` as a direct persist-to-the-DB call, explicitly *not* the full `NotificationChannel`/`NotificationDispatcher` abstraction from the LLD - reasoning at the time: a Strategy pattern with exactly one implementation isn't pulling its weight. US-027's own AC names `InAppNotificationChannel` specifically, which is the real second trigger (not "a second channel exists yet," but "the design itself now calls for the shape"). Built it properly this time:
+- `InAppNotificationChannel.send()` - persistence *is* this channel's delivery mechanism, carrying over the Sprint 4 savepoint fix for the identical reason it was needed there.
+- `NotificationDispatcher` tries every channel independently (try/except per channel, logged on failure) - per the AC's "always produces a visible in-app notification even if other channels fail," which is forward-looking today (only one channel exists) but will already hold the moment US-028 (email) adds a second one, without revisiting this code.
+- Refactored `NotificationService.on_threshold_crossed` to delegate to the dispatcher *without changing its public signature* - the exact test worth running after a refactor like this: do the *old* tests, written against the *old* implementation, still pass unmodified? They did, which is real evidence the refactor preserved behavior rather than just an assertion that it should have.
+
+### 2. Filling in methods a design doc already named, now that something needs them
+
+The LLD listed `ExpenseService.get_today_total`/`get_monthly_total` and implied the same shape for Income, months ago in this project's design phase - never built because no story needed them until the Dashboard did. Extracted the month-boundary math (which `BudgetService` already had inline) into `common/utils/dates.py` - the first thing to actually use the `common/utils/` package that's existed as an empty placeholder since Day 1 - and refactored `BudgetService` to use it too, removing the duplicate. A small, satisfying instance of a documented-but-unbuilt design decision turning out to still be the right one once its moment actually arrived.
+
+### 3. Getting "zero" right is not the same as getting "no error" right
+
+US-031's AC is specific: *"correct even for a brand-new user with zero data (no divide-by-zero, no nulls where zero is expected)."* The interesting part is the parenthetical implies nulls are sometimes *correct* - not every missing value should collapse to zero. `remaining_budget` is `None` for a user with no budget set, deliberately not `0`: "no budget exists" and "a $0 budget, fully spent" are different facts, and flattening them to the same number would misrepresent the first as the second. Caught myself almost getting this wrong the other direction too, while writing the test: `total_categories` for a brand-new user is correctly **10** (the seeded defaults), not 0 - the intuitive-but-wrong assumption for "a user with zero data" would be to expect every field to read zero, when category count genuinely isn't zero even for someone who's done nothing yet. Worth the extra half-second of thought before asserting what "correct" means for each individual field, rather than pattern-matching "new user -> everything's 0."
+
+### 4. The hardening pass itself - and what it actually found
+
+`SPRINT_PLAN.md` doesn't just mention hardening in passing - it gives a specific reason: this is the first sprint where every module meets through one facade, which is exactly where integration bugs hide that per-module unit tests can't see. Wrote one real-HTTP integration test (not mocked) walking signup through categories, budget-setting, two expenses (one crossing a threshold), the resulting notification, income, the dashboard aggregating all of it, category-deletion protection, and cross-user isolation - a single continuous story, not five isolated ones.
+
+It found something immediately, on the very first run: `/api/expenses/` returns a paginated envelope (`{count, next, previous, results}`, per US-018's explicit requirement), while `/api/income/` and `/api/notifications/` return bare lists, since neither of *those* stories ever asked for pagination. My own test assumed uniform response shapes across list endpoints and broke on that assumption, not on a real bug in the application. This is **not a bug to fix** - each endpoint is correctly scoped to its own story's actual AC - but it's a genuine, real inconsistency in the API surface that a future frontend (or API consumer) needs to know about. Documented in the test itself rather than silently working around it. This is precisely the category of thing a hardening pass is *for*: not finding new logic errors, but finding where independently-correct pieces don't quite assume the same things about each other.
+
+### Concepts learned today (quick recap)
+
+| Concept | One-line takeaway |
+|---|---|
+| Defer a pattern until the second real trigger | A Strategy abstraction with one implementation is premature; a story's own AC naming the abstraction ("InAppNotificationChannel") is a legitimate signal that the moment has arrived |
+| Refactor safety net: old tests, unmodified | After restructuring a class's internals, the real test is whether pre-existing tests (written against the old shape) still pass without being touched - not just "new tests pass" |
+| A design doc's unbuilt methods aren't dead | `get_today_total`/`get_monthly_total` sat unused in the LLD for months - correctly deferred, not forgotten, until Dashboard gave them a reason to exist |
+| Null vs. zero are different claims | Collapsing "doesn't exist" and "exists and is zero" into the same value (0) misrepresents the first as the second - a brand-new user's missing budget is `None`, not `0` |
+| "Zero data" doesn't mean every field reads zero | Category count for a brand-new user is correctly non-zero (the seeded defaults) - worth checking each field's actual semantics, not pattern-matching "new user implies everything's empty" |
+| A hardening pass's real job | Not finding new logic bugs in any one module - finding where independently-correct modules silently assume different things about each other (here: whether list responses are paginated) |
+
+### End-of-day state
+
+- **Sprint 5 complete - MVP milestone reached**: US-027 and US-031 both merged, plus a dedicated hardening pass (not tied to a backlog issue - process work the sprint plan itself called for).
+- 163 tests passing, 1 honestly skipped (unchanged reason, SQLite's locking model).
+- Full MVP user journey verified end-to-end through real HTTP requests across every module built so far: accounts, categories, expenses (with search/filter/sort/pagination), income, budgets, notifications, dashboard.
+- One real API-surface inconsistency documented (not fixed, since each side is individually correct per its own story): expense list responses are paginated, income/notification list responses aren't.
+- Per `SPRINT_PLAN.md`, Sprints 1-5 constitute the full MVP as originally scoped. Remaining sprints (6: profile/polish, 7: dashboard richness/reports, 8: exports/secondary auth/remaining notifications) are V1.1 - valuable, but not MVP-blocking.
