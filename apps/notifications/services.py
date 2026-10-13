@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import IntegrityError, transaction
 
 from apps.budgets.observers import BudgetObserver
@@ -18,8 +20,15 @@ class NotificationService(BudgetObserver):
     """
 
     def on_threshold_crossed(self, user, budget, spent, percent, threshold_tier):
+        # Same formatting-consistency fix as BudgetService.get_status: a raw
+        # Decimal from a Sum() aggregate can render with a different number
+        # of trailing digits than one read straight from the DB.
+        cents = Decimal("0.01")
         title = f"Budget {threshold_tier}% threshold reached"
-        message = f"You've spent {spent} of your {budget.budget} budget ({percent}%) this month."
+        message = (
+            f"You've spent {spent.quantize(cents)} of your {budget.budget.quantize(cents)} "
+            f"budget ({percent}%) this month."
+        )
         try:
             # Nested atomic() -> a SAVEPOINT when already inside an outer
             # transaction (BudgetService.evaluate_threshold_for_period's own
