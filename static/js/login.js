@@ -4,8 +4,6 @@ import { getFriendlyErrorMessage } from "./auth-errors.js";
 
 const form = document.getElementById("login-form");
 const errorAlert = document.getElementById("error-alert");
-const tokenDisplay = document.getElementById("token-display");
-const tokenText = document.getElementById("token-text");
 
 form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -18,10 +16,7 @@ form.addEventListener("submit", async (event) => {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const idToken = await userCredential.user.getIdToken();
         sessionStorage.setItem("idToken", idToken);
-
-        form.classList.add("d-none");
-        tokenDisplay.classList.remove("d-none");
-        tokenText.value = idToken;
+        window.location.href = "/dashboard/";
     } catch (error) {
         errorAlert.textContent = getFriendlyErrorMessage(error);
         errorAlert.classList.remove("d-none");
