@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.categories',
     'apps.expenses',
+    'apps.income',
 ]
 
 REST_FRAMEWORK = {
