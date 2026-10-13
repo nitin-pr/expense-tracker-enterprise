@@ -38,3 +38,11 @@ class IncomeServiceTests(TestCase):
 
         total = self.service.repository.sum_for_period(self.user, date(2026, 1, 1), date(2026, 1, 31))
         self.assertEqual(total, Decimal("1500"))
+
+    def test_get_monthly_total_sums_only_that_month(self):
+        self.service.create_income(self.user, "salary", Decimal("1000"), date(2026, 1, 15))
+        self.service.create_income(self.user, "bonus", Decimal("500"), date(2026, 2, 1))  # different month
+        self.assertEqual(self.service.get_monthly_total(self.user, 1, 2026), Decimal("1000"))
+
+    def test_get_monthly_total_zero_for_brand_new_user(self):
+        self.assertEqual(self.service.get_monthly_total(self.user, 1, 2026), Decimal("0"))

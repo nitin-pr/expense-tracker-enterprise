@@ -83,3 +83,16 @@ class ExpenseServiceTests(TestCase):
         expense = self._create(category=self.default_category)
         updated = self.service.update_expense(self.user, expense, category=self.own_category)
         self.assertEqual(updated.category, self.own_category)
+
+    def test_get_today_total_sums_only_todays_expenses(self):
+        self._create(amount=Decimal("10"), expense_date=date.today())
+        self._create(amount=Decimal("20"), expense_date=date.today() - timedelta(days=1))
+        self.assertEqual(self.service.get_today_total(self.user), Decimal("10"))
+
+    def test_get_today_total_zero_for_brand_new_user(self):
+        self.assertEqual(self.service.get_today_total(self.user), Decimal("0"))
+
+    def test_get_monthly_total_sums_only_that_month(self):
+        self._create(amount=Decimal("10"), expense_date=date(2026, 1, 15))
+        self._create(amount=Decimal("20"), expense_date=date(2026, 2, 1))  # different month
+        self.assertEqual(self.service.get_monthly_total(self.user, 1, 2026), Decimal("10"))
