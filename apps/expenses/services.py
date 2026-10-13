@@ -15,7 +15,7 @@ class ExpenseService(BaseService):
         self._validate_category_access(user, category)
         validate_positive_amount(amount)
         validate_not_future_date(expense_date)
-        return self.repository.create(
+        expense = self.repository.create(
             user=user,
             category=category,
             title=title,
@@ -26,6 +26,16 @@ class ExpenseService(BaseService):
             notes=notes,
             attachment=attachment,
         )
+        self._evaluate_budget_threshold(user, expense.expense_date)
+        return expense
+
+    def _evaluate_budget_threshold(self, user, expense_date):
+        # Local import deliberately, not module-level: avoids ever having to
+        # reason about cross-app import order between expenses <-> budgets,
+        # at zero real cost since this only runs once per expense creation.
+        from apps.budgets.services import BudgetThresholdEvaluator
+
+        BudgetThresholdEvaluator().evaluate(user, expense_date)
 
     def update_expense(self, user, expense, **data):
         if "category" in data:

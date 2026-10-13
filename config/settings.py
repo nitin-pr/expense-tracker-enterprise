@@ -47,6 +47,8 @@ INSTALLED_APPS = [
     'apps.categories',
     'apps.expenses',
     'apps.income',
+    'apps.budgets',
+    'apps.notifications',
 ]
 
 REST_FRAMEWORK = {
@@ -105,6 +107,13 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        # SQLite's default connection timeout (Python sqlite3's own default,
+        # 5s) is too short for genuine multi-thread write contention in tests
+        # like US-026's concurrency test - a second writer should wait for
+        # the first to finish, not fail immediately. Postgres (production)
+        # doesn't need this; it has real row-level locking and no equivalent
+        # single-writer-at-a-time constraint at the whole-database level.
+        'OPTIONS': {'timeout': 20},
     }
 }
 
