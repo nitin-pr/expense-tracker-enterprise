@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'apps.income',
     'apps.budgets',
     'apps.notifications',
+    'apps.dashboard',
 ]
 
 REST_FRAMEWORK = {

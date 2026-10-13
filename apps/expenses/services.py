@@ -1,5 +1,8 @@
+from datetime import date
+
 from common.exceptions import ValidationError
 from common.services import BaseService
+from common.utils import month_bounds
 from common.validators import validate_not_future_date, validate_positive_amount
 
 
@@ -56,3 +59,11 @@ class ExpenseService(BaseService):
         # Date-range/ordering validation already happened in
         # ExpenseFilter.from_query_params - filters arriving here are trusted.
         return self.repository.list_filtered(user, filters)
+
+    def get_today_total(self, user):
+        today = date.today()
+        return self.repository.sum_for_period(user, today, today)
+
+    def get_monthly_total(self, user, month, year):
+        date_from, date_to = month_bounds(year, month)
+        return self.repository.sum_for_period(user, date_from, date_to)

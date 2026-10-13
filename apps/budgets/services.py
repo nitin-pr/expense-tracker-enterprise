@@ -1,5 +1,3 @@
-import calendar
-from datetime import date
 from decimal import Decimal
 
 from django.db import transaction
@@ -7,6 +5,7 @@ from django.db import transaction
 from common.constants import BudgetThreshold
 from common.exceptions import NotFoundError, ValidationError
 from common.services import BaseService
+from common.utils import month_bounds
 from common.validators import validate_positive_amount
 
 from .models import Budget
@@ -84,8 +83,8 @@ class BudgetService(BaseService):
     def _compute_spent(self, user, month, year):
         from apps.expenses.repositories import ExpenseRepository
 
-        _, last_day = calendar.monthrange(year, month)
-        return ExpenseRepository().sum_for_period(user, date(year, month, 1), date(year, month, last_day))
+        date_from, date_to = month_bounds(year, month)
+        return ExpenseRepository().sum_for_period(user, date_from, date_to)
 
 
 class BudgetThresholdEvaluator:
