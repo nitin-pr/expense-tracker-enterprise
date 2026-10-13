@@ -41,3 +41,8 @@ class ExpenseService(BaseService):
 
     def get_expense(self, expense_id):
         return self.repository.get_by_id(expense_id)
+
+    def list_expenses(self, user, filters):
+        # Date-range/ordering validation already happened in
+        # ExpenseFilter.from_query_params - filters arriving here are trusted.
+        return self.repository.list_filtered(user, filters)

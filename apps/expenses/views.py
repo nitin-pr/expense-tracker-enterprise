@@ -1,9 +1,11 @@
 from rest_framework import status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from common.exceptions import NotFoundError
 
+from .filters import ExpenseFilter
 from .repositories import ExpenseRepository
 from .serializers import ExpenseSerializer
 from .services import ExpenseService
@@ -13,8 +15,21 @@ def get_service():
     return ExpenseService(repository=ExpenseRepository())
 
 
-class ExpenseCreateView(APIView):
-    """POST only, per US-014's AC - bare list/pagination is Sprint 3 (US-016/017/018)."""
+class ExpensePagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class ExpenseListCreateView(APIView):
+    pagination_class = ExpensePagination
+
+    def get(self, request):
+        filters = ExpenseFilter.from_query_params(request.query_params)
+        queryset = get_service().list_expenses(request.user, filters)
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        return paginator.get_paginated_response(ExpenseSerializer(page, many=True).data)
 
     def post(self, request):
         serializer = ExpenseSerializer(data=request.data)
