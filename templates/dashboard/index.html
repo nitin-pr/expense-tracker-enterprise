@@ -2,20 +2,23 @@
 {% load static %}
 {% block title %}Dashboard - Expense Tracker{% endblock %}
 {% block content %}
-<nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+<nav class="navbar navbar-expand-lg app-navbar mb-4">
     <div class="container-fluid">
-        <span class="navbar-brand">Expense Tracker</span>
+        <span class="app-brand">
+            <span class="app-brand-icon"><i class="bi bi-wallet2"></i></span>
+            Expense Tracker
+        </span>
         <div class="d-flex align-items-center gap-2">
             <div class="dropdown">
-                <button class="btn btn-outline-light btn-sm position-relative" type="button" data-bs-toggle="dropdown">
+                <button class="btn-icon position-relative" type="button" data-bs-toggle="dropdown">
                     <i class="bi bi-bell"></i>
                     <span class="badge bg-danger rounded-pill position-absolute top-0 start-100 translate-middle d-none" id="notifications-count"></span>
                 </button>
-                <ul class="dropdown-menu dropdown-menu-end p-2" id="notifications-list" style="min-width: 320px; max-height: 400px; overflow-y: auto;">
+                <ul class="dropdown-menu dropdown-menu-end notifications-menu" id="notifications-list" style="min-width: 320px; max-height: 400px; overflow-y: auto;">
                     <li class="text-muted small px-2" id="notifications-empty">No notifications yet.</li>
                 </ul>
             </div>
-            <button class="btn btn-outline-light btn-sm" id="logout-btn">Logout</button>
+            <button class="btn btn-outline-secondary btn-sm btn-logout" id="logout-btn">Logout</button>
         </div>
     </div>
 </nav>
@@ -25,41 +28,56 @@
 
     <div class="row mb-4 g-3">
         <div class="col-6 col-md-4 col-lg">
-            <div class="card text-center h-100"><div class="card-body">
-                <div class="text-muted small">Today's Expense</div>
-                <div class="fs-5 fw-bold" id="summary-today-expense">-</div>
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-primary"><i class="bi bi-cash-coin"></i></span>
+                <div>
+                    <div class="stat-label">Today's Expense</div>
+                    <div class="stat-value" id="summary-today-expense">-</div>
+                </div>
             </div></div>
         </div>
         <div class="col-6 col-md-4 col-lg">
-            <div class="card text-center h-100"><div class="card-body">
-                <div class="text-muted small">Monthly Expense</div>
-                <div class="fs-5 fw-bold" id="summary-monthly-expense">-</div>
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-danger"><i class="bi bi-graph-down-arrow"></i></span>
+                <div>
+                    <div class="stat-label">Monthly Expense</div>
+                    <div class="stat-value" id="summary-monthly-expense">-</div>
+                </div>
             </div></div>
         </div>
         <div class="col-6 col-md-4 col-lg">
-            <div class="card text-center h-100"><div class="card-body">
-                <div class="text-muted small">Monthly Income</div>
-                <div class="fs-5 fw-bold" id="summary-monthly-income">-</div>
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-success"><i class="bi bi-graph-up-arrow"></i></span>
+                <div>
+                    <div class="stat-label">Monthly Income</div>
+                    <div class="stat-value" id="summary-monthly-income">-</div>
+                </div>
             </div></div>
         </div>
         <div class="col-6 col-md-4 col-lg">
-            <div class="card text-center h-100"><div class="card-body">
-                <div class="text-muted small">Remaining Budget</div>
-                <div class="fs-5 fw-bold" id="summary-remaining-budget">-</div>
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-info"><i class="bi bi-piggy-bank"></i></span>
+                <div>
+                    <div class="stat-label">Remaining Budget</div>
+                    <div class="stat-value" id="summary-remaining-budget">-</div>
+                </div>
             </div></div>
         </div>
         <div class="col-6 col-md-4 col-lg">
-            <div class="card text-center h-100"><div class="card-body">
-                <div class="text-muted small">Total Categories</div>
-                <div class="fs-5 fw-bold" id="summary-total-categories">-</div>
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-warning"><i class="bi bi-tags"></i></span>
+                <div>
+                    <div class="stat-label">Total Categories</div>
+                    <div class="stat-value" id="summary-total-categories">-</div>
+                </div>
             </div></div>
         </div>
     </div>
 
-    <div class="card mb-4">
+    <div class="card section-card mb-4">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <h5 class="card-title mb-0">This Month's Budget</h5>
+                <h5 class="card-title mb-0"><i class="bi bi-piggy-bank me-2 text-muted"></i>This Month's Budget</h5>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-primary" id="budget-trigger-btn" data-bs-toggle="modal" data-bs-target="#budget-modal">Set Budget</button>
                     <button type="button" class="btn btn-sm btn-outline-danger d-none" id="delete-budget-btn">Delete</button>
@@ -67,7 +85,7 @@
             </div>
             <div id="budget-no-budget" class="text-muted d-none">No budget set for this month yet.</div>
             <div id="budget-details" class="d-none">
-                <div class="progress mb-2" style="height: 20px;">
+                <div class="progress budget-progress mb-2">
                     <div class="progress-bar" id="budget-progress-bar" role="progressbar" style="width: 0%">0%</div>
                 </div>
                 <div class="d-flex justify-content-between small text-muted">
@@ -78,20 +96,20 @@
         </div>
     </div>
 
-    <div class="card mb-4">
+    <div class="card section-card mb-4">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="card-title mb-0">Categories</h5>
+                <h5 class="card-title mb-0"><i class="bi bi-tags me-2 text-muted"></i>Categories</h5>
                 <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#category-modal">Add Category</button>
             </div>
             <div id="categories-list" class="d-flex flex-wrap gap-2"></div>
         </div>
     </div>
 
-    <div class="card mb-4">
+    <div class="card section-card mb-4">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="card-title mb-0">Income</h5>
+                <h5 class="card-title mb-0"><i class="bi bi-graph-up-arrow me-2 text-muted"></i>Income</h5>
                 <button type="button" class="btn btn-sm btn-primary" id="add-income-btn" data-bs-toggle="modal" data-bs-target="#income-modal">Add Income</button>
             </div>
             <div class="table-responsive">
@@ -104,10 +122,10 @@
         </div>
     </div>
 
-    <div class="card mb-4">
+    <div class="card section-card mb-4">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="card-title mb-0">Expenses</h5>
+                <h5 class="card-title mb-0"><i class="bi bi-receipt me-2 text-muted"></i>Expenses</h5>
                 <button type="button" class="btn btn-sm btn-primary" id="add-expense-btn" data-bs-toggle="modal" data-bs-target="#expense-modal">Add Expense</button>
             </div>
 
