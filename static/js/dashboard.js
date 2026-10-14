@@ -9,6 +9,7 @@ let expensesNextUrl = null;
 let expensesPrevUrl = null;
 let editingIncomeId = null;
 let editingExpenseId = null;
+let currentBudgetId = null;
 
 function money(value) {
     return `₹${Number(value).toFixed(2)}`;
@@ -75,14 +76,20 @@ async function loadBudget() {
     if (!response) return;
 
     if (response.status === 404) {
+        currentBudgetId = null;
         document.getElementById("budget-no-budget").classList.remove("d-none");
         document.getElementById("budget-details").classList.add("d-none");
+        document.getElementById("budget-trigger-btn").textContent = "Set Budget";
+        document.getElementById("delete-budget-btn").classList.add("d-none");
         return;
     }
 
     const data = await response.json();
+    currentBudgetId = data.id;
     document.getElementById("budget-no-budget").classList.add("d-none");
     document.getElementById("budget-details").classList.remove("d-none");
+    document.getElementById("budget-trigger-btn").textContent = "Edit Budget";
+    document.getElementById("delete-budget-btn").classList.remove("d-none");
 
     const percent = data.percent_used;
     const bar = document.getElementById("budget-progress-bar");
@@ -95,9 +102,26 @@ async function loadBudget() {
 }
 
 document.getElementById("budget-modal").addEventListener("show.bs.modal", () => {
-    const today = new Date();
-    document.getElementById("budget-month").value = today.getMonth() + 1;
-    document.getElementById("budget-year").value = today.getFullYear();
+    const monthInput = document.getElementById("budget-month");
+    const yearInput = document.getElementById("budget-year");
+    const amountInput = document.getElementById("budget-amount");
+
+    if (currentBudgetId) {
+        // Edit mode: month/year are immutable once a budget exists (see
+        // BudgetService.update_budget), so lock them and only let amount change.
+        document.getElementById("budget-modal-title").textContent = "Edit Monthly Budget";
+        monthInput.disabled = true;
+        yearInput.disabled = true;
+        amountInput.value = document.getElementById("budget-total-text").textContent.replace(/[^\d.]/g, "");
+    } else {
+        document.getElementById("budget-modal-title").textContent = "Set Monthly Budget";
+        const today = new Date();
+        monthInput.disabled = false;
+        yearInput.disabled = false;
+        monthInput.value = today.getMonth() + 1;
+        yearInput.value = today.getFullYear();
+        amountInput.value = "";
+    }
 });
 
 document.getElementById("budget-form").addEventListener("submit", async (event) => {
@@ -105,12 +129,16 @@ document.getElementById("budget-form").addEventListener("submit", async (event) 
     const errorBox = document.getElementById("budget-form-error");
     errorBox.classList.add("d-none");
 
-    const payload = {
-        month: Number(document.getElementById("budget-month").value),
-        year: Number(document.getElementById("budget-year").value),
-        budget: document.getElementById("budget-amount").value,
-    };
-    const { ok, data } = await apiJson("/api/budgets/", "POST", payload);
+    const path = currentBudgetId ? `/api/budgets/${currentBudgetId}/` : "/api/budgets/";
+    const method = currentBudgetId ? "PUT" : "POST";
+    const payload = currentBudgetId
+        ? { budget: document.getElementById("budget-amount").value }
+        : {
+              month: Number(document.getElementById("budget-month").value),
+              year: Number(document.getElementById("budget-year").value),
+              budget: document.getElementById("budget-amount").value,
+          };
+    const { ok, data } = await apiJson(path, method, payload);
 
     if (!ok) {
         errorBox.textContent = formatApiError(data);
@@ -120,6 +148,18 @@ document.getElementById("budget-form").addEventListener("submit", async (event) 
     modalFor("budget-modal").hide();
     document.getElementById("budget-form").reset();
     await Promise.all([loadBudget(), loadSummary()]);
+});
+
+document.getElementById("delete-budget-btn").addEventListener("click", async () => {
+    if (!currentBudgetId) return;
+    if (!confirm("Delete this month's budget? This also clears its threshold notifications.")) return;
+
+    const { ok, data } = await apiJson(`/api/budgets/${currentBudgetId}/`, "DELETE");
+    if (!ok) {
+        showPageError(formatApiError(data));
+        return;
+    }
+    await Promise.all([loadBudget(), loadSummary(), loadNotifications()]);
 });
 
 // ---------------------------------------------------------------- Categories
@@ -423,22 +463,46 @@ async function loadNotifications() {
 
     list.querySelectorAll(".notification-item").forEach((el) => el.remove());
 
-    if (data.length === 0) {
-        empty.classList.remove("d-none");
+    const unreadCount = data.filter((n) => !n.read).length;
+    if (unreadCount === 0) {
         countBadge.classList.add("d-none");
-        return;
+    } else {
+        countBadge.textContent = unreadCount;
+        countBadge.classList.remove("d-none");
     }
 
+    if (data.length === 0) {
+        empty.classList.remove("d-none");
+        return;
+    }
     empty.classList.add("d-none");
-    countBadge.textContent = data.length;
-    countBadge.classList.remove("d-none");
 
     data.slice(0, 10).forEach((notification) => {
         const item = document.createElement("li");
-        item.className = "notification-item px-2 py-1 border-bottom small";
-        item.innerHTML = `<div class="fw-semibold">${notification.title}</div><div class="text-muted">${notification.message}</div>`;
+        item.className = "notification-item px-2 py-1 border-bottom small" + (notification.read ? "" : " bg-light");
+        item.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start gap-2">
+                <div>
+                    <div class="fw-semibold">${notification.title}</div>
+                    <div class="text-muted">${notification.message}</div>
+                </div>
+                <button type="button" class="btn btn-sm btn-link p-0 mark-read-btn text-nowrap">${notification.read ? "Mark unread" : "Mark read"}</button>
+            </div>`;
+        item.querySelector(".mark-read-btn").addEventListener("click", (event) => {
+            event.stopPropagation();
+            toggleNotificationRead(notification.id, !notification.read);
+        });
         list.appendChild(item);
     });
+}
+
+async function toggleNotificationRead(id, read) {
+    const { ok, data } = await apiJson(`/api/notifications/${id}/`, "PATCH", { read });
+    if (!ok) {
+        showPageError(formatApiError(data));
+        return;
+    }
+    await loadNotifications();
 }
 
 // ---------------------------------------------------------------- Init

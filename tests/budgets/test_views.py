@@ -55,3 +55,70 @@ class BudgetViewTests(TestCase):
     def test_get_status_rejects_non_numeric_month(self):
         response = self.client.get("/api/budgets/?month=abc&year=2026")
         self.assertEqual(response.status_code, 400)
+
+    def test_detail_get_requires_authentication(self):
+        create = self.client.post("/api/budgets/", {"month": 1, "year": 2026, "budget": "1000.00"})
+        self.client.force_authenticate(user=None)
+        response = self.client.get(f"/api/budgets/{create.data['id']}/")
+        self.assertEqual(response.status_code, 401)
+
+    def test_detail_get_returns_status_by_id(self):
+        create = self.client.post("/api/budgets/", {"month": 1, "year": 2026, "budget": "1000.00"})
+        response = self.client.get(f"/api/budgets/{create.data['id']}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["budget"], Decimal("1000.00"))
+
+    def test_detail_get_for_nonexistent_budget_returns_404(self):
+        response = self.client.get("/api/budgets/99999/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_detail_get_for_other_users_budget_returns_404(self):
+        other = User.objects.create(firebase_uid="uid-2", email="o@example.com", name="o")
+        other_client = APIClient()
+        other_client.force_authenticate(user=other)
+        create = other_client.post("/api/budgets/", {"month": 1, "year": 2026, "budget": "1000.00"})
+
+        response = self.client.get(f"/api/budgets/{create.data['id']}/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_put_updates_budget_amount(self):
+        create = self.client.post("/api/budgets/", {"month": 1, "year": 2026, "budget": "1000.00"})
+        response = self.client.put(f"/api/budgets/{create.data['id']}/", {"budget": "1500.00"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["budget"], Decimal("1500.00"))
+
+    def test_put_ignores_month_and_year(self):
+        create = self.client.post("/api/budgets/", {"month": 1, "year": 2026, "budget": "1000.00"})
+        response = self.client.put(
+            f"/api/budgets/{create.data['id']}/", {"budget": "1500.00", "month": 6, "year": 2030}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["month"], 1)
+        self.assertEqual(response.data["year"], 2026)
+
+    def test_put_rejects_zero_amount(self):
+        create = self.client.post("/api/budgets/", {"month": 1, "year": 2026, "budget": "1000.00"})
+        response = self.client.put(f"/api/budgets/{create.data['id']}/", {"budget": "0"})
+        self.assertEqual(response.status_code, 400)
+
+    def test_put_requires_budget_field(self):
+        create = self.client.post("/api/budgets/", {"month": 1, "year": 2026, "budget": "1000.00"})
+        response = self.client.put(f"/api/budgets/{create.data['id']}/", {})
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_removes_budget_and_resets_future_status_lookup(self):
+        create = self.client.post("/api/budgets/", {"month": 1, "year": 2026, "budget": "1000.00"})
+        response = self.client.delete(f"/api/budgets/{create.data['id']}/")
+        self.assertEqual(response.status_code, 204)
+
+        follow_up = self.client.get("/api/budgets/?month=1&year=2026")
+        self.assertEqual(follow_up.status_code, 404)
+
+    def test_delete_for_other_users_budget_returns_404(self):
+        other = User.objects.create(firebase_uid="uid-2", email="o@example.com", name="o")
+        other_client = APIClient()
+        other_client.force_authenticate(user=other)
+        create = other_client.post("/api/budgets/", {"month": 1, "year": 2026, "budget": "1000.00"})
+
+        response = self.client.delete(f"/api/budgets/{create.data['id']}/")
+        self.assertEqual(response.status_code, 404)

@@ -118,3 +118,55 @@ class BudgetServiceTests(TestCase):
         # budget exists yet - evaluate_threshold_for_period must no-op cleanly.
         self._add_expense_via_service(Decimal("50"))  # should not raise
         self.assertEqual(Notification.objects.filter(user=self.user).count(), 0)
+
+    def test_get_budget_for_user_returns_owned_budget(self):
+        budget = self.service.create_budget(self.user, 1, 2026, Decimal("1000"))
+        fetched = self.service.get_budget_for_user(self.user, budget.id)
+        self.assertEqual(fetched.id, budget.id)
+
+    def test_get_budget_for_user_raises_not_found_for_other_users_budget(self):
+        other = User.objects.create(firebase_uid="uid-2", email="o@example.com", name="o")
+        budget = self.service.create_budget(other, 1, 2026, Decimal("1000"))
+        with self.assertRaises(NotFoundError):
+            self.service.get_budget_for_user(self.user, budget.id)
+
+    def test_get_budget_for_user_raises_not_found_for_nonexistent_id(self):
+        with self.assertRaises(NotFoundError):
+            self.service.get_budget_for_user(self.user, 99999)
+
+    def test_update_budget_changes_amount(self):
+        budget = self.service.create_budget(self.user, 1, 2026, Decimal("1000"))
+        updated = self.service.update_budget(budget, Decimal("1500"))
+        self.assertEqual(updated.budget, Decimal("1500"))
+        self.assertEqual(updated.month, 1)
+        self.assertEqual(updated.year, 2026)
+
+    def test_update_budget_rejects_zero_amount(self):
+        budget = self.service.create_budget(self.user, 1, 2026, Decimal("1000"))
+        with self.assertRaises(ValidationError):
+            self.service.update_budget(budget, Decimal("0"))
+
+    def test_update_budget_does_not_reset_existing_notifications(self):
+        budget = self.service.create_budget(self.user, 1, 2026, Decimal("1000"))
+        self._add_expense_via_service(Decimal("850"))  # crosses 80% tier
+        self.assertEqual(Notification.objects.filter(budget=budget, threshold_tier=80).count(), 1)
+
+        self.service.update_budget(budget, Decimal("2000"))
+
+        self.assertEqual(Notification.objects.filter(budget=budget, threshold_tier=80).count(), 1)
+
+    def test_delete_budget_cascades_notifications(self):
+        budget = self.service.create_budget(self.user, 1, 2026, Decimal("1000"))
+        self._add_expense_via_service(Decimal("850"))
+        self.assertEqual(Notification.objects.filter(budget=budget).count(), 1)
+
+        self.service.delete_budget(budget)
+
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_get_status_for_budget_matches_get_status(self):
+        budget = self.service.create_budget(self.user, 1, 2026, Decimal("1000"))
+        self._add_expense_direct(Decimal("300"))
+        by_period = self.service.get_status(self.user, 1, 2026)
+        by_id = self.service.get_status_for_budget(budget)
+        self.assertEqual(by_period, by_id)

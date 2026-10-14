@@ -34,9 +34,15 @@ class BudgetService(BaseService):
         if budget is None:
             raise NotFoundError(f"No budget set for {month}/{year}.")
         spent = self._compute_spent(user, month, year)
+        return self._build_status(budget, spent)
+
+    def _build_status(self, budget, spent):
         percent_used = int((spent / budget.budget) * 100) if budget.budget else 0
         cents = Decimal("0.01")
         return {
+            "id": budget.id,
+            "month": budget.month,
+            "year": budget.year,
             # Explicitly quantized to 2 decimal places - a raw Decimal from
             # DB storage vs. one from a Sum() aggregate can render with a
             # different number of trailing digits (e.g. Decimal('300') vs
@@ -49,6 +55,30 @@ class BudgetService(BaseService):
             "remaining": (budget.budget - spent).quantize(cents),  # deliberately allowed to go negative
             "percent_used": percent_used,
         }
+
+    def get_budget_for_user(self, user, budget_id):
+        # Same 404-not-403 fold as Expense/Income: a budget is never visible
+        # cross-user, so "not found" and "not yours" return the same response.
+        budget = self.repository.get_by_id(budget_id)
+        if budget is None or budget.user_id != user.id:
+            raise NotFoundError(f"Budget {budget_id} not found.")
+        return budget
+
+    def get_status_for_budget(self, budget):
+        spent = self._compute_spent(budget.user, budget.month, budget.year)
+        return self._build_status(budget, spent)
+
+    def update_budget(self, budget, budget_amount):
+        # Amount only - month/year are immutable once a budget exists (they're
+        # part of the UniqueConstraint identity, not an editable attribute).
+        validate_positive_amount(budget_amount)
+        return self.repository.update(budget, budget=budget_amount)
+
+    def delete_budget(self, budget):
+        # Notification.budget has on_delete=CASCADE, so this also clears every
+        # threshold notification tied to this budget - the only way to reset
+        # the UNIQUE(budget, threshold_tier) backstop once a tier has fired.
+        self.repository.delete(budget)
 
     def evaluate_threshold_for_period(self, user, month, year):
         """
