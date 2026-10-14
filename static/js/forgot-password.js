@@ -21,6 +21,7 @@ form.addEventListener("submit", async (event) => {
         successAlert.textContent = "If an account exists for that email, a password reset link has been sent.";
         successAlert.classList.remove("d-none");
     } catch (error) {
+        console.error("Password reset request failed:", error);
         errorAlert.textContent = getFriendlyErrorMessage(error);
         errorAlert.classList.remove("d-none");
     }

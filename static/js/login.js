@@ -18,6 +18,7 @@ form.addEventListener("submit", async (event) => {
         sessionStorage.setItem("idToken", idToken);
         window.location.href = "/dashboard/";
     } catch (error) {
+        console.error("Login failed:", error);
         errorAlert.textContent = getFriendlyErrorMessage(error);
         errorAlert.classList.remove("d-none");
     }
