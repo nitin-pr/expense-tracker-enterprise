@@ -1,3 +1,4 @@
+from common.exceptions import NotFoundError
 from common.services import BaseService
 
 from apps.budgets.observers import BudgetObserver
@@ -26,3 +27,13 @@ class NotificationService(BaseService, BudgetObserver):
 
     def list_for_user(self, user):
         return self.repository.list(user=user)
+
+    def get_for_user(self, user, notification_id):
+        # Same 404-not-403 fold as Expense/Budget - never visible cross-user.
+        notification = self.repository.get_by_id(notification_id)
+        if notification is None or notification.user_id != user.id:
+            raise NotFoundError(f"Notification {notification_id} not found.")
+        return notification
+
+    def mark_read(self, notification, read=True):
+        return self.repository.update(notification, read=read)

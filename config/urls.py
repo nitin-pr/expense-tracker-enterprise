@@ -16,10 +16,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.views.generic import TemplateView
+from django.views.generic import RedirectView, TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
 urlpatterns = [
+    path('', RedirectView.as_view(url='/dashboard/', permanent=False)),
     path('admin/', admin.site.urls),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
@@ -27,6 +28,7 @@ urlpatterns = [
     path('signup/', TemplateView.as_view(template_name='accounts/signup.html'), name='signup'),
     path('login/', TemplateView.as_view(template_name='accounts/login.html'), name='login'),
     path('forgot-password/', TemplateView.as_view(template_name='accounts/forgot_password.html'), name='forgot_password'),
+    path('dashboard/', TemplateView.as_view(template_name='dashboard/index.html'), name='dashboard'),
     path('api/auth/', include('apps.accounts.urls')),
     path('api/categories/', include('apps.categories.urls')),
     path('api/expenses/', include('apps.expenses.urls')),

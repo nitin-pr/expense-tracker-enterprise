@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Dashboard - Expense Tracker{% endblock %}
+{% block content %}
+<nav class="navbar navbar-expand-lg app-navbar mb-4">
+    <div class="container-fluid">
+        <span class="app-brand">
+            <span class="app-brand-icon"><i class="bi bi-wallet2"></i></span>
+            Expense Tracker
+        </span>
+        <div class="d-flex align-items-center gap-2">
+            <div class="dropdown">
+                <button class="btn-icon position-relative" type="button" data-bs-toggle="dropdown">
+                    <i class="bi bi-bell"></i>
+                    <span class="badge bg-danger rounded-pill position-absolute top-0 start-100 translate-middle d-none" id="notifications-count"></span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end notifications-menu" id="notifications-list" style="min-width: 320px; max-height: 400px; overflow-y: auto;">
+                    <li class="text-muted small px-2" id="notifications-empty">No notifications yet.</li>
+                </ul>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm btn-logout" id="logout-btn">Logout</button>
+        </div>
+    </div>
+</nav>
+
+<div class="container">
+    <div id="page-error" class="alert alert-danger d-none"></div>
+
+    <div class="row mb-4 g-3">
+        <div class="col-6 col-md-4 col-lg">
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-primary"><i class="bi bi-cash-coin"></i></span>
+                <div>
+                    <div class="stat-label">Today's Expense</div>
+                    <div class="stat-value" id="summary-today-expense">-</div>
+                </div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg">
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-danger"><i class="bi bi-graph-down-arrow"></i></span>
+                <div>
+                    <div class="stat-label">Monthly Expense</div>
+                    <div class="stat-value" id="summary-monthly-expense">-</div>
+                </div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg">
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-success"><i class="bi bi-graph-up-arrow"></i></span>
+                <div>
+                    <div class="stat-label">Monthly Income</div>
+                    <div class="stat-value" id="summary-monthly-income">-</div>
+                </div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg">
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-info"><i class="bi bi-piggy-bank"></i></span>
+                <div>
+                    <div class="stat-label">Remaining Budget</div>
+                    <div class="stat-value" id="summary-remaining-budget">-</div>
+                </div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md-4 col-lg">
+            <div class="card stat-card h-100"><div class="card-body">
+                <span class="stat-icon stat-icon-warning"><i class="bi bi-tags"></i></span>
+                <div>
+                    <div class="stat-label">Total Categories</div>
+                    <div class="stat-value" id="summary-total-categories">-</div>
+                </div>
+            </div></div>
+        </div>
+    </div>
+
+    <div class="card section-card mb-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="card-title mb-0"><i class="bi bi-piggy-bank me-2 text-muted"></i>This Month's Budget</h5>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-primary" id="budget-trigger-btn" data-bs-toggle="modal" data-bs-target="#budget-modal">Set Budget</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger d-none" id="delete-budget-btn">Delete</button>
+                </div>
+            </div>
+            <div id="budget-no-budget" class="text-muted d-none">No budget set for this month yet.</div>
+            <div id="budget-details" class="d-none">
+                <div class="progress budget-progress mb-2">
+                    <div class="progress-bar" id="budget-progress-bar" role="progressbar" style="width: 0%">0%</div>
+                </div>
+                <div class="d-flex justify-content-between small text-muted">
+                    <span id="budget-spent-text">Spent: -</span>
+                    <span id="budget-total-text">Budget: -</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card section-card mb-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="card-title mb-0"><i class="bi bi-tags me-2 text-muted"></i>Categories</h5>
+                <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#category-modal">Add Category</button>
+            </div>
+            <div id="categories-list" class="d-flex flex-wrap gap-2"></div>
+        </div>
+    </div>
+
+    <div class="card section-card mb-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="card-title mb-0"><i class="bi bi-graph-up-arrow me-2 text-muted"></i>Income</h5>
+                <button type="button" class="btn btn-sm btn-primary" id="add-income-btn" data-bs-toggle="modal" data-bs-target="#income-modal">Add Income</button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>Source</th><th>Amount</th><th>Date</th><th class="text-end">Actions</th></tr></thead>
+                    <tbody id="income-table-body"></tbody>
+                </table>
+            </div>
+            <div class="text-muted small" id="income-empty">No income recorded yet.</div>
+        </div>
+    </div>
+
+    <div class="card section-card mb-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="card-title mb-0"><i class="bi bi-receipt me-2 text-muted"></i>Expenses</h5>
+                <button type="button" class="btn btn-sm btn-primary" id="add-expense-btn" data-bs-toggle="modal" data-bs-target="#expense-modal">Add Expense</button>
+            </div>
+
+            <div class="row g-2 mb-3">
+                <div class="col-md-3">
+                    <input type="text" class="form-control form-control-sm" id="filter-search" placeholder="Search title/description">
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select form-select-sm" id="filter-category"><option value="">All categories</option></select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select form-select-sm" id="filter-payment-method">
+                        <option value="">All payment methods</option>
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="upi">UPI</option>
+                        <option value="net_banking">Net Banking</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="col-md-2"><input type="date" class="form-control form-control-sm" id="filter-date-from" title="From date"></div>
+                <div class="col-md-2"><input type="date" class="form-control form-control-sm" id="filter-date-to" title="To date"></div>
+                <div class="col-md-1">
+                    <select class="form-select form-select-sm" id="filter-ordering">
+                        <option value="-expense_date">Newest</option>
+                        <option value="expense_date">Oldest</option>
+                        <option value="amount">Amount asc</option>
+                        <option value="-amount">Amount desc</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>Title</th><th>Amount</th><th>Category</th><th>Payment</th><th>Date</th><th class="text-end">Actions</th></tr></thead>
+                    <tbody id="expenses-table-body"></tbody>
+                </table>
+            </div>
+            <div class="text-muted small mb-2" id="expenses-empty">No expenses found.</div>
+            <nav>
+                <ul class="pagination pagination-sm justify-content-center mb-0">
+                    <li class="page-item"><button type="button" class="page-link" id="expenses-prev">Previous</button></li>
+                    <li class="page-item disabled"><span class="page-link" id="expenses-page-info">-</span></li>
+                    <li class="page-item"><button type="button" class="page-link" id="expenses-next">Next</button></li>
+                </ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="budget-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="budget-form">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="budget-modal-title">Set Monthly Budget</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="budget-form-error" class="alert alert-danger d-none"></div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Month</label>
+                            <input type="number" min="1" max="12" class="form-control" id="budget-month" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Year</label>
+                            <input type="number" min="2000" max="2100" class="form-control" id="budget-year" required>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <label class="form-label">Budget Amount</label>
+                        <input type="number" step="0.01" min="0.01" class="form-control" id="budget-amount" required>
+                    </div>
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-primary">Save</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="category-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="category-form">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Category</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="category-form-error" class="alert alert-danger d-none"></div>
+                    <div class="mb-2">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" id="category-name" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Icon (Bootstrap Icons name, e.g. "cart3")</label>
+                        <input type="text" class="form-control" id="category-icon" value="tag" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Color</label>
+                        <input type="color" class="form-control form-control-color" id="category-color" value="#4caf50" required>
+                    </div>
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-primary">Save</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="income-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="income-form">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="income-modal-title">Add Income</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="income-form-error" class="alert alert-danger d-none"></div>
+                    <input type="hidden" id="income-id">
+                    <div class="mb-2">
+                        <label class="form-label">Source</label>
+                        <select class="form-select" id="income-source" required>
+                            <option value="salary">Salary</option>
+                            <option value="freelancing">Freelancing</option>
+                            <option value="investment">Investment</option>
+                            <option value="bonus">Bonus</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Amount</label>
+                        <input type="number" step="0.01" min="0.01" class="form-control" id="income-amount" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Date</label>
+                        <input type="date" class="form-control" id="income-date" required>
+                    </div>
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-primary">Save</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="expense-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="expense-form">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="expense-modal-title">Add Expense</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="expense-form-error" class="alert alert-danger d-none"></div>
+                    <input type="hidden" id="expense-id">
+                    <div class="mb-2">
+                        <label class="form-label">Title</label>
+                        <input type="text" class="form-control" id="expense-title" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Amount</label>
+                        <input type="number" step="0.01" min="0.01" class="form-control" id="expense-amount" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Category</label>
+                        <select class="form-select" id="expense-category" required></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Payment Method</label>
+                        <select class="form-select" id="expense-payment-method" required>
+                            <option value="cash">Cash</option>
+                            <option value="card">Card</option>
+                            <option value="upi">UPI</option>
+                            <option value="net_banking">Net Banking</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Date</label>
+                        <input type="date" class="form-control" id="expense-date" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Description</label>
+                        <input type="text" class="form-control" id="expense-description">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Notes</label>
+                        <input type="text" class="form-control" id="expense-notes">
+                    </div>
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-primary">Save</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}

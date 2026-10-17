@@ -57,3 +57,52 @@ class NotificationListViewTests(TestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["kind"], "budget_exceeded")
         self.assertEqual(response.data[0]["threshold_tier"], 80)
+
+
+class NotificationDetailViewTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(firebase_uid="uid-1", email="u@example.com", name="u")
+        self.other = User.objects.create(firebase_uid="uid-2", email="o@example.com", name="o")
+        self.client.force_authenticate(user=self.user)
+
+    def test_patch_requires_authentication(self):
+        notification = Notification.objects.create(
+            user=self.user, title="t", message="m", kind="daily_reminder"
+        )
+        self.client.force_authenticate(user=None)
+        response = self.client.patch(f"/api/notifications/{notification.id}/", {}, format="json")
+        self.assertEqual(response.status_code, 401)
+
+    def test_patch_marks_notification_read_by_default(self):
+        notification = Notification.objects.create(
+            user=self.user, title="t", message="m", kind="daily_reminder"
+        )
+        response = self.client.patch(f"/api/notifications/{notification.id}/", {}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["read"])
+        notification.refresh_from_db()
+        self.assertTrue(notification.read)
+
+    def test_patch_can_mark_notification_unread(self):
+        notification = Notification.objects.create(
+            user=self.user, title="t", message="m", kind="daily_reminder", read=True
+        )
+        response = self.client.patch(
+            f"/api/notifications/{notification.id}/", {"read": False}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["read"])
+
+    def test_patch_for_nonexistent_notification_returns_404(self):
+        response = self.client.patch("/api/notifications/99999/", {}, format="json")
+        self.assertEqual(response.status_code, 404)
+
+    def test_patch_for_other_users_notification_returns_404(self):
+        notification = Notification.objects.create(
+            user=self.other, title="t", message="m", kind="daily_reminder"
+        )
+        response = self.client.patch(f"/api/notifications/{notification.id}/", {}, format="json")
+        self.assertEqual(response.status_code, 404)
+        notification.refresh_from_db()
+        self.assertFalse(notification.read)

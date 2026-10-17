@@ -1,0 +1,395 @@
+/* Modern design layer on top of Bootstrap 5 defaults. Bootstrap classes
+   (card, btn, table, modal, ...) stay exactly as the markup/JS already use
+   them - this file only restyles how those classes look, never what they're
+   named, so dashboard.js's getElementById/class toggling needs no changes. */
+
+:root {
+    --color-primary: #4f46e5;
+    --color-primary-dark: #4338ca;
+    --color-primary-soft: #eef2ff;
+    --color-success: #16a34a;
+    --color-success-soft: #ecfdf3;
+    --color-warning: #d97706;
+    --color-warning-soft: #fffbeb;
+    --color-danger: #dc2626;
+    --color-danger-soft: #fef2f2;
+    --color-info: #0891b2;
+    --color-info-soft: #ecfeff;
+
+    --surface: #ffffff;
+    --bg: #f4f5fa;
+    --text: #111827;
+    --text-muted: #6b7280;
+    --border: #e7e8f0;
+
+    --radius-lg: 1rem;
+    --radius-md: 0.75rem;
+    --radius-sm: 0.5rem;
+
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+    --shadow-md: 0 4px 10px rgba(16, 24, 40, 0.06), 0 2px 4px rgba(16, 24, 40, 0.04);
+    --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.12), 0 4px 8px rgba(16, 24, 40, 0.04);
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------- Navbar */
+
+.app-navbar {
+    background: var(--surface) !important;
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    padding-top: 0.85rem;
+    padding-bottom: 0.85rem;
+}
+
+.app-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--text) !important;
+}
+
+.app-brand-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, var(--color-primary), #818cf8);
+    color: #fff;
+    font-size: 1.05rem;
+}
+
+.app-navbar .btn-icon {
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    transition: all 0.15s ease;
+}
+
+.app-navbar .btn-icon:hover {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    border-color: var(--color-primary-soft);
+}
+
+.app-navbar .btn-logout {
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+}
+
+/* ---------------------------------------------------------------- Cards */
+
+.card {
+    border: 0;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+}
+
+.card .card-title {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.section-card .card-body {
+    padding: 1.4rem;
+}
+
+/* Stat/summary cards */
+
+.stat-card .card-body {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 1.15rem;
+}
+
+.stat-icon {
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: var(--radius-md);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.15rem;
+}
+
+.stat-icon.stat-icon-primary { background: var(--color-primary-soft); color: var(--color-primary); }
+.stat-icon.stat-icon-danger { background: var(--color-danger-soft); color: var(--color-danger); }
+.stat-icon.stat-icon-success { background: var(--color-success-soft); color: var(--color-success); }
+.stat-icon.stat-icon-warning { background: var(--color-warning-soft); color: var(--color-warning); }
+.stat-icon.stat-icon-info { background: var(--color-info-soft); color: var(--color-info); }
+
+.stat-label {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.stat-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+/* ---------------------------------------------------------------- Buttons */
+
+.btn {
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    transition: transform 0.1s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn-primary {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+}
+
+.btn-primary:hover {
+    background: var(--color-primary-dark);
+    border-color: var(--color-primary-dark);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-sm.btn-primary, .btn-sm.btn-outline-danger, .btn-sm.btn-outline-secondary {
+    box-shadow: none;
+}
+
+.btn-outline-danger, .btn-outline-secondary {
+    border-radius: var(--radius-sm);
+}
+
+/* ---------------------------------------------------------------- Budget widget */
+
+.budget-progress {
+    height: 0.85rem;
+    border-radius: 999px;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+.budget-progress .progress-bar {
+    border-radius: 999px;
+    transition: width 0.4s ease;
+}
+
+.budget-progress .progress-bar.bg-success { background: linear-gradient(90deg, #22c55e, #16a34a) !important; }
+.budget-progress .progress-bar.bg-warning { background: linear-gradient(90deg, #fbbf24, #d97706) !important; }
+.budget-progress .progress-bar.bg-danger { background: linear-gradient(90deg, #f87171, #dc2626) !important; }
+
+/* ---------------------------------------------------------------- Category pills */
+
+#categories-list .badge {
+    font-weight: 500;
+    font-size: 0.85rem;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.12s ease;
+}
+
+#categories-list .badge:hover {
+    transform: translateY(-1px);
+}
+
+/* ---------------------------------------------------------------- Tables */
+
+.table {
+    --bs-table-bg: transparent;
+}
+
+.table thead th {
+    border-bottom: 1px solid var(--border);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    font-weight: 600;
+    padding-bottom: 0.6rem;
+}
+
+.table td, .table th {
+    border-color: var(--border);
+    vertical-align: middle;
+}
+
+.table tbody tr {
+    transition: background-color 0.12s ease;
+}
+
+.table tbody tr:hover {
+    background-color: var(--bg);
+}
+
+.table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+/* ---------------------------------------------------------------- Pagination */
+
+.pagination .page-link {
+    border-radius: var(--radius-sm);
+    margin: 0 0.15rem;
+    border-color: var(--border);
+    color: var(--text);
+}
+
+.pagination .page-item.disabled .page-link {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------- Forms */
+
+.form-control, .form-select {
+    border-radius: var(--radius-sm);
+    border-color: var(--border);
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 0.2rem var(--color-primary-soft);
+}
+
+.form-label {
+    font-weight: 500;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------- Modals */
+
+.modal-content {
+    border: 0;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--border);
+    padding: 1.1rem 1.4rem;
+}
+
+.modal-body {
+    padding: 1.4rem;
+}
+
+.modal-footer {
+    border-top: 1px solid var(--border);
+    padding: 1rem 1.4rem;
+}
+
+/* ---------------------------------------------------------------- Notifications dropdown */
+
+.notifications-menu {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 0.4rem;
+}
+
+.notification-item {
+    border-radius: var(--radius-sm);
+    border-bottom: 0 !important;
+    margin-bottom: 0.2rem;
+    padding: 0.6rem 0.65rem !important;
+}
+
+.notification-item.bg-light {
+    background: var(--color-primary-soft) !important;
+}
+
+.notification-item .mark-read-btn {
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+/* ---------------------------------------------------------------- Auth pages */
+
+.auth-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    background: radial-gradient(circle at top left, #eef2ff, var(--bg) 55%);
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 400px;
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: 2.25rem 2rem;
+}
+
+.auth-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.auth-brand-icon {
+    width: 3rem;
+    height: 3rem;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--color-primary), #818cf8);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+}
+
+.auth-brand h1 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.auth-card .btn-primary {
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+}
+
+.auth-card a {
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.auth-card a:hover {
+    text-decoration: underline;
+}
+
+.auth-footer-links {
+    text-align: center;
+    font-size: 0.9rem;
+}
